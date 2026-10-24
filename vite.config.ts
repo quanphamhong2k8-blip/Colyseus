@@ -2,7 +2,12 @@ import { defineConfig } from "vite";
 import { colyseus } from "colyseus/vite";
 
 export default defineConfig(({ mode }) => ({
-  server: { host: "0.0.0.0", port: 2567, strictPort: true },
+  server: {
+    host: "0.0.0.0",
+    port: Number(process.env.PORT || 2567),
+    strictPort: true,
+    allowedHosts: ["solo-wxyc.onrender.com"],
+  },
   build: { outDir: "dist/client" },
   environments: {
     client: {
