@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { colyseus } from "colyseus/vite";
 
 export default defineConfig(({ mode }) => ({
-  server: { host: "127.0.0.1", port: 2567, strictPort: true },
+  server: { host: "0.0.0.0", port: 2567, strictPort: true },
   build: { outDir: "dist/client" },
   environments: {
     client: {

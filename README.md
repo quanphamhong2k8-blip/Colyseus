@@ -35,7 +35,11 @@ relay room. Player positions use the `p` message; `e` and `m` carry game events
 and mob state. The Lua example sends a starting position; connect its `p`
 updates to the game's actual player coordinates for live movement. The
 Schema-based `my_room` remains registered for the automated movement tests.
-For local development, the server and browser client use port `2567`.
+For local development, the server binds to `0.0.0.0:2567`, allowing connections
+from other devices on the network. Open the game using this computer's LAN IP
+address (for example, `http://192.168.1.20:2567`); `0.0.0.0` is the bind
+address, not the address clients should connect to. The Windows firewall must
+also allow inbound connections on port `2567`.
 
 ## What's included
 
