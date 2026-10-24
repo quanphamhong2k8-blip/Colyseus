@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flo Hero – Đấu trường 3D</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--fg:#e8ecff;--panel:rgba(10,14,30,.75);--acc:#ff7ab8}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;overflow:hidden}
+canvas{display:block}
+#hud{position:fixed;left:0;right:0;bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:center;pointer-events:none}
+.sk{background:var(--panel);border:2px solid #556;border-radius:10px;padding:8px 12px;min-width:96px;text-align:center;position:relative;overflow:hidden}
+.sk b,.sk small{position:relative;display:block}.sk small{opacity:.8}
+.sk i{position:absolute;inset:0;background:rgba(0,0,0,.6);transform-origin:bottom;transform:scaleY(0)}
+.sk.rdy{border-color:var(--acc)}
+#tip{display:none;position:fixed;top:max(10px,env(safe-area-inset-top));left:12px;background:var(--panel);padding:8px 12px;border-radius:8px;line-height:1.6}
+#net{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,8,20,.88);z-index:9}
+#net div{text-align:center;line-height:2.4}
+#net input{font:22px system-ui;width:7em;text-align:center;background:#111833;color:var(--fg);border:2px solid #556;border-radius:8px;padding:6px}
+#net button{font:15px system-ui;background:var(--panel);color:var(--fg);border:2px solid var(--acc);border-radius:8px;padding:8px 14px;margin:4px;cursor:pointer}
+#hp{display:none;position:fixed;top:max(10px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:220px;height:12px;background:#330000;border-radius:6px;overflow:hidden}
+#hp i{display:block;height:100%;width:100%;background:#44ff44}
+#rs{position:fixed;top:max(10px,env(safe-area-inset-top));right:12px;opacity:.8}
+/* Cần điều khiển di chuyển tròn bên trái */
+#moveStick{position:fixed;left:max(22px,env(safe-area-inset-left));bottom:max(30px,calc(env(safe-area-inset-bottom) + 18px));width:132px;height:132px;border-radius:50%;border:2px solid rgba(220,235,255,.55);background:radial-gradient(circle,rgba(80,105,150,.24),rgba(12,20,40,.55));box-shadow:inset 0 0 18px rgba(130,170,255,.15),0 4px 18px rgba(0,0,0,.28);z-index:5;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
+#moveStick:before{content:"";position:absolute;width:42%;height:42%;border-radius:50%;border:1px solid rgba(220,235,255,.16);pointer-events:none}
+#moveKnob{transition:transform .055s cubic-bezier(.2,.8,.2,1);will-change:transform;position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;border:2px solid rgba(235,242,255,.78);background:linear-gradient(145deg,rgba(150,180,235,.85),rgba(58,78,125,.9));box-shadow:0 3px 12px rgba(0,0,0,.4),inset 0 1px 5px rgba(255,255,255,.25);pointer-events:none;transform:translate(0,0)}
+@media(max-width:700px){#moveStick{width:124px;height:124px;bottom:max(24px,calc(env(safe-area-inset-bottom) + 14px))}#moveKnob{transition:transform .055s cubic-bezier(.2,.8,.2,1);will-change:transform;width:46px;height:46px;margin:-23px 0 0 -23px}#hud{left:160px;right:8px;gap:5px}.sk{min-width:0;flex:1;padding:7px 5px}}
+</style></head><body>
+<div id="net"><div>Số phòng<br><input id="rc" type="tel" maxlength="6" placeholder="1234"><br><button id="rn">Tạo phòng</button><button id="rj">Vào phòng</button><button id="ro">Chơi offline</button></div></div>
+<div id="hp"><i id="hpi"></i></div><div id="rs"></div>
+<div id="moveStick" aria-label="Nút di chuyển" role="application"><div id="moveKnob"></div></div>
+<div id="tip"><b>WASD</b> di chuyển · <b>Q</b> ném hoa · <b>Chuột trái</b> lao ám sát (khi nội tại sẵn sàng) · <b>Chuột phải</b> chiêu 2<br>Nhặt hoa = nội tại sẵn sàng + hồi chiêu 2 ngay</div>
+<div id="hud">
+<div class="sk" id="kp"><i id="ip"></i><b>Nội tại</b><small id="tp"></small></div>
+<div class="sk" id="kq"><i id="iq"></i><b>Chiêu 1</b><small id="tq"></small></div>
+<div class="sk" id="ke"><i id="ie"></i><b>Chiêu 2</b><small id="te"></small></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<script type="module" src="/src/client/solo-sdk.ts"></script>
+<script>
+(()=>{
+const R_P=6.6,R_E=4.87025,R_Q=12.32,FD=R_P,CD_P=5,CD_Q=5,CD_E=1,ARENA=110; // Phạm vi chiêu 2 tăng 10%
+const $=id=>document.getElementById(id),L=c=>new THREE.MeshLambertMaterial({color:c});
+// Tăng sáng mô hình nhẹ nhàng, vẫn giữ màu và texture gốc.
+function brightenModel(model){
+ model.traverse(o=>{
+  if(!o.isMesh||!o.material)return;
+  const mats=Array.isArray(o.material)?o.material:[o.material];
+  for(const mat of mats){
+   // Nâng độ sáng tổng thể vừa phải, giữ màu gốc và tăng ánh sáng tự phát nhẹ.
+   if(mat.color)mat.color.multiplyScalar(1.1);
+   if(mat.emissive){mat.emissive.setRGB(.11,.11,.11);mat.emissiveIntensity=.58;}
+   mat.needsUpdate=true;
+  }
+ });
+}
+function makeSword(col){
+ // Hình nón cụt dài hẹp + hỗ trợ đổi màu/sáng khi nội tại
+ const g=new THREE.Group();
+ const len=1.44, rBase=.055, rTip=.012; // dài hẹp, thuôn dần
+ const mat=new THREE.MeshLambertMaterial({color:col,emissive:0x000000,emissiveIntensity:0});
+ // Nón cụt dọc trục Y rồi xoay sang Z
+ const blade=new THREE.Mesh(new THREE.CylinderGeometry(rTip,rBase,len,8),mat);
+ blade.rotation.x=Math.PI/2;g.add(blade);
+ // Đầu nhọn nhỏ
+ const tip=new THREE.Mesh(new THREE.ConeGeometry(rTip*1.15,.12,6),mat);
+ tip.rotation.x=Math.PI/2;tip.position.z=len/2+.05;g.add(tip);
+ // Cận kiếm
+ const guard=new THREE.Mesh(new THREE.CylinderGeometry(.09,.09,.04,8),new THREE.MeshLambertMaterial({color:0x8899aa}));
+ guard.rotation.x=Math.PI/2;guard.position.z=-len/2;g.add(guard);
+ g.userData.glowMat=mat;g.userData.baseCol=col;
+ return g;
+}
+
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),clamp=v=>Math.max(-ARENA,Math.min(ARENA,v));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1020);scene.fog=new THREE.Fog(0x0b1020,45,130);
+const cam=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,.1,300);
+const ren=new THREE.WebGLRenderer({antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));ren.setSize(innerWidth,innerHeight);document.body.appendChild(ren.domElement);
+scene.add(new THREE.HemisphereLight(0xbcd0ff,0x223322,.9));
+const sun=new THREE.DirectionalLight(0xffffff,.8);sun.position.set(10,30,10);scene.add(sun);
+// Map
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(260,260),L(0x1d3a2a));ground.rotation.x=-Math.PI/2;scene.add(ground);
+const grid=new THREE.GridHelper(260,65,0x4a7a5a,0x2c5a3c);grid.position.y=.02;scene.add(grid);
+// Đã bỏ toàn bộ cây khỏi địa hình theo yêu cầu.
+// Hero
+const hero=new THREE.Group(),pos=hero.position;
+const body=new THREE.Mesh(new THREE.CylinderGeometry(.5,.6,1.4,12),L(0x3a7bff));body.position.y=.7;
+const head=new THREE.Mesh(new THREE.SphereGeometry(.4,12,10),L(0xffd9b0));head.position.y=1.8;
+const sword=makeSword(0xdfe6ff);sword.position.set(.7,1,.8);
+hero.add(body,head,sword);scene.add(hero);
+// Model sanji.glb (tai tu CDN, co URL du phong)
+(()=>{const URLS=['https://cdn.jsdelivr.net/gh/quanphamhong2k8-blip/khomohinh3D@main/sanji.glb','https://raw.githubusercontent.com/quanphamhong2k8-blip/khomohinh3D/main/sanji.glb'];
+ const tryLoad=i=>{if(i>=URLS.length)return console.error('GLB loi: tai that bai moi URL');
+ new THREE.GLTFLoader().load(URLS[i],g=>{const m=g.scene;m.scale.setScalar(1.44);let rh=null;
+  brightenModel(m);
+  m.traverse(o=>{if(o.isMesh)o.frustumCulled=false;if(o.isBone&&/RightHand$/.test(o.name))rh=o});
+  hero.add(m);mdl=m;gltfD=g;body.visible=head.visible=false;
+  if(rh){
+    rh.add(sword);rhB=rh;rfa=rh.parent;
+    // Giữ nguyên tọa độ kiếm gốc
+    sword.position.set(0,.55,0);
+    sword.rotation.set(-Math.PI/2,0,0);
+    sword.scale.setScalar(1.15);
+    sword.userData.basePos = sword.position.clone();
+    sword.userData.baseRot = sword.rotation.clone();
+  }
+  mixer=new THREE.AnimationMixer(m);
+  for(const c of g.animations){c.tracks.forEach(t=>{if(/Hips.*\.position$/.test(t.name)){const v=t.values,x=v[0],z=v[2];for(let i=0;i<v.length;i+=3){v[i]=x;v[i+2]=z}}});acts[c.name.trim().toLowerCase()]=mixer.clipAction(c)}
+  go('idle')},undefined,()=>{console.warn('GLB: loi tai '+URLS[i]+', thu URL du phong');tryLoad(i+1)})};
+ tryLoad(0)})();
+function ring(r,col,op){const m=new THREE.Mesh(new THREE.RingGeometry(r-.1,r,64),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op,side:THREE.DoubleSide}));m.rotation.x=-Math.PI/2;m.position.y=.06;return m}
+const ringP=ring(R_P,0xff7ab8,.2),ringE=ring(R_E,0xffffff,0);hero.add(ringP,ringE);
+// Effects
+const fx=[];
+// Vệt lướt đỏ là một dải liên tục được VẼ THEO QUỸ ĐẠO LƯNG nhân vật,
+// tương tự vệt kiếm bám theo mũi kiếm; không tạo các vệt/ảnh rời.
+const dashTrail={points:[],mesh:null,active:false,lastX:0,lastZ:0};
+{
+ const geo=new THREE.BufferGeometry();
+ const mat=new THREE.MeshBasicMaterial({color:0xd41436,transparent:true,opacity:.95,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
+ dashTrail.mesh=new THREE.Mesh(geo,mat);dashTrail.mesh.frustumCulled=false;dashTrail.mesh.renderOrder=10;scene.add(dashTrail.mesh);
+}
+function spawnDashFlash(){dashTrail.active=true;}
+function updateDashFlashes(dt,T){
+ const moving=!!lunge||dashT>0;
+ if(moving){
+  // Điểm bám ở chính giữa phần lưng mô hình: lùi khỏi tâm nhân vật theo hướng quay.
+  const rot=hero.rotation.y;
+  const x=pos.x-Math.sin(rot)*.48, z=pos.z-Math.cos(rot)*.48;
+  const last=dashTrail.points[dashTrail.points.length-1];
+  if(!last||Math.hypot(x-last.x,z-last.z)>.025)dashTrail.points.push({x,z,t:T});
+  dashTrail.active=true;
+ }
+ dashTrail.points=dashTrail.points.filter(p=>T-p.t<.30);
+ const pts=dashTrail.points, geo=dashTrail.mesh.geometry;
+ if(pts.length<2){geo.setAttribute('position',new THREE.Float32BufferAttribute([],3));dashTrail.mesh.material.opacity=0;return;}
+ const verts=[],indices=[];
+ for(let i=0;i<pts.length;i++){
+  const p=pts[i],a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];
+  let dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz)||1;const nx=-dz/len,nz=dx/len;
+  const age=(T-p.t)/.30, taper=Math.max(.08,1-age);
+  const width=.22*taper;
+  // Nâng dải vệt lên giữa phía sau mô hình thay vì nằm sát mặt đất.
+  const trailY=.82;
+  verts.push(p.x+nx*width,trailY,p.z+nz*width,p.x-nx*width,trailY,p.z-nz*width);
+  if(i<pts.length-1){const k=i*2;indices.push(k,k+1,k+2,k+1,k+3,k+2);}
+ }
+ geo.dispose();dashTrail.mesh.geometry=new THREE.BufferGeometry();
+ dashTrail.mesh.geometry.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));dashTrail.mesh.geometry.setIndex(indices);dashTrail.mesh.geometry.computeVertexNormals();
+ dashTrail.mesh.material.opacity=Math.max(.05, .95*(1-(T-pts[0].t)/.36));
+ if(!moving&&pts.length===0)dashTrail.active=false;
+}
+function burst(x,z,r,col,f,d,s){
+ while(fx.length>20){const o=fx.shift();scene.remove(o.m);if(o.m.geometry)o.m.geometry.dispose();if(o.m.material)o.m.material.dispose()}
+ const m=new THREE.Mesh(new THREE.RingGeometry(.85,1,32),new THREE.MeshBasicMaterial({color:col,transparent:true,side:THREE.DoubleSide,depthWrite:false}));m.rotation.x=-Math.PI/2;m.position.set(x,.1,z);m.scale.setScalar(.2);scene.add(m);fx.push({m,r,t:0,f,d:d||.3,s:s==null?.2:s})}
+// Vệt đâm thẳng xuyên qua mục tiêu và vọt hẳn ra phía sau trong tích tắc.
+const passiveImpacts=[];
+// Hiệu ứng đâm nội tại bắt đầu đúng tại mũi kiếm và kéo xuyên tới mục tiêu.
+function passiveImpact(sx,sy,sz,ex,ez,dx,dz){
+ const len=Math.max(1.6,Math.hypot(ex-sx,ez-sz)*1.45+2.0); // Vệt đâm dài hơn, xuyên qua mục tiêu và vọt xa phía sau
+ const g=new THREE.Group();g.position.set(sx,Math.max(.72,Math.min(1.55,sy)),sz);g.rotation.y=Math.atan2(dx,dz);
+ const streaks=[];
+ // Tạo thân đâm thuôn nhọn ở CẢ HAI đầu, trục dọc theo Z để bám hướng kiếm.
+ const addStreak=(w,h,l,col,opacity,localZ)=>{
+  const geo=new THREE.BufferGeometry(),verts=[],indices=[];const sides=8;
+  const rings=[{z:0,r:.015},{z:l*.10,r:1},{z:l*.84,r:.72},{z:l,r:.008}];
+  for(const ring of rings){for(let j=0;j<sides;j++){const a=j*Math.PI*2/sides;verts.push(Math.cos(a)*w*.5*ring.r,Math.sin(a)*h*.5*ring.r,ring.z)}}
+  for(let r=0;r<rings.length-1;r++)for(let j=0;j<sides;j++){const a=r*sides+j,b=r*sides+(j+1)%sides,c=(r+1)*sides+j,d=(r+1)*sides+(j+1)%sides;indices.push(a,b,c,b,d,c)}
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(indices);geo.computeVertexNormals();
+  const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
+  m.position.set(0,0,localZ);g.add(m);streaks.push(m);return m;
+ };
+ // Viền hồng và lõi trắng đều thuôn thành mũi nhọn, tạo cảm giác đâm xuyên sắc gọn.
+ addStreak(.28,.18,len,0xff4fa8,.98,0);
+ addStreak(.13,.105,len*.99,0xffffff,1,.01);
+ addStreak(.42,.045,len*.88,0xffa9d5,.82,len*.06);
+ // Chỉ giữ lại vệt đâm; bỏ chớp cầu tại điểm trúng và toàn bộ hạt cầu bay tỏa ra.
+ scene.add(g);passiveImpacts.push({g,t:0,d:.14});
+ while(passiveImpacts.length>12){const old=passiveImpacts.shift();scene.remove(old.g);disposeObj(old.g)}
+}
+function updatePassiveImpacts(dt){
+ for(let i=passiveImpacts.length-1;i>=0;i--){const f=passiveImpacts[i];f.t+=dt;const k=Math.max(0,1-f.t/f.d);
+  const grow=f.t<.035?1.12:1;f.g.scale.set(grow,grow,grow);
+  f.g.traverse(o=>{if(o.isMesh&&o.material)o.material.opacity=Math.max(0,k)});
+  if(f.t>=f.d){scene.remove(f.g);disposeObj(f.g);passiveImpacts.splice(i,1)}
+ }
+}
+// Vệt kiếm đỏ cho chiêu 2 và nội tại: bám theo quỹ đạo đầu kiếm, cong và thuôn hai đầu
+const slashTrail={points:[],mesh:null,active:false,lastAnim:false};
+(function initSlashTrail(){
+ const g=new THREE.BufferGeometry();
+ const m=new THREE.MeshBasicMaterial({color:0x5c000f,transparent:true,opacity:1,side:THREE.DoubleSide,depthWrite:false,blending:THREE.NormalBlending});
+ slashTrail.mesh=new THREE.Mesh(g,m);slashTrail.mesh.frustumCulled=false;slashTrail.mesh.renderOrder=8;scene.add(slashTrail.mesh);
+})();
+function updateSlashTrail(dt,T){
+ const active=(cur==="chieu2"||cur==="noitai")&&oneT>0&&sword&&sword.parent;
+ if(active){
+  sword.updateMatrixWorld(true);
+  const tip=new THREE.Vector3(0,0,0.78).applyMatrix4(sword.matrixWorld);
+  const prev=slashTrail.points[slashTrail.points.length-1];
+  if(!prev||tip.distanceTo(prev.p)>.035)slashTrail.points.push({p:tip.clone(),t:T});
+ }else if(slashTrail.lastAnim){
+  // Giữ vệt lại rất ngắn sau khi kết thúc hoạt ảnh
+ }
+ slashTrail.lastAnim=!!active;
+ slashTrail.points=slashTrail.points.filter(v=>T-v.t<.24);
+ const pts=slashTrail.points;
+ const geom=slashTrail.mesh.geometry;
+ if(pts.length<2){geom.setAttribute('position',new THREE.Float32BufferAttribute([],3));geom.setIndex([]);return}
+ const verts=[],idx=[],camDir=new THREE.Vector3();
+ cam.getWorldDirection(camDir);
+ for(let i=0;i<pts.length;i++){
+  const tangent=new THREE.Vector3();
+  if(i===0)tangent.subVectors(pts[1].p,pts[0].p);
+  else if(i===pts.length-1)tangent.subVectors(pts[i].p,pts[i-1].p);
+  else tangent.subVectors(pts[i+1].p,pts[i-1].p);
+  if(tangent.lengthSq()<1e-8)tangent.set(1,0,0);else tangent.normalize();
+  let side=new THREE.Vector3().crossVectors(tangent,camDir);
+  if(side.lengthSq()<1e-6)side.set(-tangent.z,0,tangent.x);
+  side.normalize();
+  const u=i/(pts.length-1);
+  // Hai đầu nhọn, thân giữa dày như vệt cắt trong ảnh
+  const taper=Math.pow(Math.sin(Math.PI*u),.72);
+  const width=(.035+1.05*taper)*(0.55+0.45*Math.min(1,pts.length/8))*0.214; // tăng độ dày thêm 7% so với mức 20% trước đó
+  const age=Math.max(0,1-(T-pts[i].t)/.24);
+  const w=width*Math.sqrt(age);
+  const center=pts[i].p;
+  verts.push(center.x+side.x*w,center.y+side.y*w,center.z+side.z*w);
+  verts.push(center.x-side.x*w*.72,center.y-side.y*w*.72,center.z-side.z*w*.72);
+  if(i<pts.length-1){const a=i*2;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
+ }
+ geom.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+ geom.setIndex(idx);geom.computeVertexNormals();
+ slashTrail.mesh.material.opacity=.98;
+}
+// Vệt cắt cố định trên thân địch thay hiệu ứng nổ dưới chân
+const hitSlashes=[];
+function enemySlash(e){
+ if(!e||!e.g||!e.g.visible)return;
+ const shape=new THREE.Shape();shape.moveTo(-.86,.72);shape.quadraticCurveTo(-.25,.22,.68,-.76);shape.quadraticCurveTo(.44,-.12,.25,.04);shape.quadraticCurveTo(-.18,.45,-.86,.72);
+ const geo=new THREE.ShapeGeometry(shape,16),mat=new THREE.MeshBasicMaterial({color:0x390008,transparent:true,opacity:1,side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3});
+ const mark=new THREE.Mesh(geo,mat);mark.position.set(0,1.05,.615);mark.rotation.z=-.08;mark.scale.set(2.05,1.28,1);mark.renderOrder=9;e.g.add(mark);hitSlashes.push({mesh:mark,t:0,d:.48});
+ while(hitSlashes.length>30){const h=hitSlashes.shift();h.mesh.parent?.remove(h.mesh);h.mesh.geometry.dispose();h.mesh.material.dispose()}
+}
+// Enemies
+const HPMAX=2000;let online=false,isHost=true,ac=0,pdead=0,hp=HPMAX,gltfD=null,netLock=true;
+const enemies=[];
+function respawn(e){let x,z;do{x=(Math.random()-.5)*160;z=(Math.random()-.5)*160}while(Math.hypot(x-pos.x,z-pos.z)<12);e.g.position.set(x,0,z);e.hp=e.max;e.dead=0;e.g.visible=true}
+for(let i=0;i<14;i++){const g=new THREE.Group(),m=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,1.8,10),L(0xd04040));m.position.y=.9;
+ const bars=new THREE.Group();bars.position.y=2.5;
+ const bg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x330000})),fg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x44ff44}));fg.position.z=.01;
+ bars.add(bg,fg);g.add(m,bars);scene.add(g);
+ m.scale.setScalar(1.44);m.position.y=1.296;bars.position.y=3.2;const e={g,m,fg,bars,hp:150,max:150,dead:0,flash:0,hitT:0,vx:0,vz:0,tm:0,mid:i};respawn(e);enemies.push(e)}
+// Bao cát: đứng yên, không mất máu
+for(const [x,z] of [[0,-18],[-18,-18],[18,-18],[-30,0],[30,0],[0,26]]){const g=new THREE.Group(),m=new THREE.Mesh(new THREE.CylinderGeometry(.7,.7,2,12),new THREE.MeshLambertMaterial({color:0xc8a064})),band=new THREE.Mesh(new THREE.CylinderGeometry(.72,.72,.25,12),L(0x6b4a2a));m.scale.setScalar(1.44);band.scale.setScalar(1.44);m.position.y=1.44;band.position.y=2.016;g.add(m,band);g.position.set(x,0,z);scene.add(g);enemies.push({g,m,bag:1,dead:0,flash:0,hitT:0,hp:1,max:1})}
+// Phản hồi trúng đòn rõ và có lực: lóe trắng, giật mô hình, tia và hạt va chạm.
+const damageImpacts=[];
+function spawnDamageImpact(e){
+ if(!e||!e.g||!e.g.visible)return;
+ const center=e.g.position, y=e.bag?1.45:1.3;
+ const g=new THREE.Group();g.position.set(center.x,y,center.z);scene.add(g);
+ const bits=[];
+ for(let i=0;i<12;i++){
+  const a=Math.random()*Math.PI*2,up=.15+Math.random()*.95;
+  const mesh=new THREE.Mesh(new THREE.SphereGeometry(.035+Math.random()*.035,6,5),new THREE.MeshBasicMaterial({color:i%3===0?0xffffff:(i%2?0xff7ab8:0xff3b58),transparent:true,opacity:1,depthWrite:false,blending:THREE.AdditiveBlending}));
+  mesh.position.set((Math.random()-.5)*.35,(Math.random()-.5)*.5,(Math.random()-.5)*.35);g.add(mesh);
+  bits.push({mesh,vx:Math.cos(a)*(.9+Math.random()*2.2),vy:up*(.8+Math.random()*1.8),vz:Math.sin(a)*(.9+Math.random()*2.2)});
+ }
+ // Hai vệt sáng chéo ngắn làm điểm va chạm nổi bật hơn.
+ for(let i=0;i<2;i++){
+  const streak=new THREE.Mesh(new THREE.BoxGeometry(.045,.045,1.05),new THREE.MeshBasicMaterial({color:i?0xff7ab8:0xffffff,transparent:true,opacity:.95,depthWrite:false,blending:THREE.AdditiveBlending}));
+  streak.rotation.y=Math.random()*Math.PI;streak.rotation.x=(Math.random()-.5)*.8;g.add(streak);
+ }
+ damageImpacts.push({g,bits,t:0,d:.22});
+ while(damageImpacts.length>24){const old=damageImpacts.shift();scene.remove(old.g);disposeObj(old.g)}
+ e.hitT=.18;e.flash=.2;
+}
+function updateDamageImpacts(dt){
+ for(let i=damageImpacts.length-1;i>=0;i--){const f=damageImpacts[i];f.t+=dt;const k=Math.max(0,1-f.t/f.d);
+  f.g.scale.setScalar(.65+.65*Math.min(1,f.t/.045));
+  f.g.children.forEach(c=>{if(c.material)c.material.opacity=k});
+  for(const p of f.bits){p.mesh.position.x+=p.vx*dt;p.mesh.position.y+=p.vy*dt;p.mesh.position.z+=p.vz*dt;p.vy-=4*dt}
+  if(f.t>=f.d){scene.remove(f.g);disposeObj(f.g);damageImpacts.splice(i,1)}
+ }
+}
+// Dự đoán sát thương cục bộ: trừ máu hiển thị ngay (e.pend), khi máu thật về thì đối soát.
+function addPend(e,d,ms){const n=performance.now();e.pend=(n<(e.pendT||0)?(e.pend||0):0)+d;e.pendT=n+ms}
+function hit(e,d){spawnDamageImpact(e);if(e.bag)return;if(e.remote){netDmgP(e,d);addPend(e,d,700);return}if(online&&!isHost){netDmgM(e,d);addPend(e,d,600);return}e.hp-=d;if(e.hp<=0){e.hp=0;e.dead=3;e.g.visible=false}}
+// Flowers & shots
+const flowers=[],shots=[];
+function disposeObj(o){if(!o)return;o.traverse(c=>{if(c.geometry)c.geometry.dispose();if(c.material){if(Array.isArray(c.material))c.material.forEach(m=>m.dispose());else c.material.dispose()}})}
+function clearFlowers(all){for(let i=flowers.length-1;i>=0;i--){const f=flowers[i];if(all||!f.vis){scene.remove(f.g);disposeObj(f.g);flowers.splice(i,1)}} }
+function mkFlower(x,z,vis,fromNet,sx,sz){
+ // giới hạn tối đa 15 bông để tránh lag
+ while(flowers.length>=15){const old=flowers.shift();scene.remove(old.g);disposeObj(old.g)}
+ const g=new THREE.Group(),pm=new THREE.MeshLambertMaterial(vis?{color:0xff3030,emissive:0x551111}:{color:0xff7ab8,emissive:0x551133});
+ for(let i=0;i<5;i++){const a=i/5*6.283,p=new THREE.Mesh(new THREE.SphereGeometry(.22,6,5),pm);p.position.set(Math.cos(a)*.38,0,Math.sin(a)*.38);g.add(p)}
+ g.add(new THREE.Mesh(new THREE.SphereGeometry(.18,6,5),new THREE.MeshLambertMaterial({color:0xffe060,emissive:0x553300})));
+ const id=Math.random().toString(36).slice(2,9);
+ const fly=sx!=null?{sx,sz,ex:x,ez:z,u:0,dur:.2}:null; // 0.2s cả quá trình bay
+ if(fly){g.position.set(sx,1.4,sz);g.scale.setScalar(.3)}else g.position.set(x,.8,z);
+ scene.add(g);flowers.push({g,t:7,vis:!!vis,id,x:+x.toFixed(1),z:+z.toFixed(1),fly});
+ burst(fly?sx:x,fly?sz:z,1.4,vis?0xff3030:0xff7ab8);
+ if(!vis&&!fromNet)netFx({k:'f',x:+x.toFixed(1),z:+z.toFixed(1),id,sx:sx!=null?+sx.toFixed(1):null,sz:sz!=null?+sz.toFixed(1):null})}
+// Input
+const keys={},ray=new THREE.Raycaster(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),mw=new THREE.Vector3(),mn=new THREE.Vector2();
+let stickX=0,stickY=0,stickTX=0,stickTY=0,stickPointer=null;
+const moveStick=$('moveStick'),moveKnob=$('moveKnob');
+function updateStick(e){const r=moveStick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=e.clientX-cx,dy=e.clientY-cy,max=r.width*.34,len=Math.hypot(dx,dy),k=len>max?max/len:1;stickTX=dx*k/max;stickTY=dy*k/max;if(Math.abs(stickTX)<.08)stickTX=0;if(Math.abs(stickTY)<.08)stickTY=0;moveKnob.style.transform=`translate(${dx*k}px,${dy*k}px)`}
+moveStick.addEventListener('pointerdown',e=>{e.preventDefault();stickPointer=e.pointerId;moveStick.setPointerCapture(e.pointerId);updateStick(e)});
+moveStick.addEventListener('pointermove',e=>{if(e.pointerId===stickPointer){e.preventDefault();updateStick(e)}});
+function resetStick(e){if(e.pointerId!==undefined&&e.pointerId!==stickPointer)return;stickPointer=null;stickTX=stickTY=0;moveKnob.style.transform='translate(0,0)'}
+moveStick.addEventListener('pointerup',resetStick);moveStick.addEventListener('pointercancel',resetStick);moveStick.addEventListener('lostpointercapture',resetStick);
+let faceE=null,faceET=0,passive=CD_P,cd1=0,cd2=0,dashT=0,lockT=0,s2ok=0,lunge=null;
+addEventListener('keydown',e=>{if(e.repeat)return;const k=e.key.toLowerCase();keys[k]=1;if(k==='q')press('q')});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=0});
+addEventListener('mousemove',e=>mn.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1));
+addEventListener('contextmenu',e=>e.preventDefault());
+addEventListener('mousedown',e=>{if(e.button===0)press('p');else if(e.button===2)press('e')});
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)});
+let pend=null,pendT=0,bT=0;
+let mixer=null,acts={},cur=null,oneT=0,faceT=0,faceY=0;
+let impactShake=0;let rhB=null,rfa=null;const _v1=new THREE.Vector3(),_v2=new THREE.Vector3(),_q1=new THREE.Quaternion(),_q2=new THREE.Quaternion(),_q3=new THREE.Quaternion(),_Y=new THREE.Vector3(0,1,0);let mdl=null,C1=Math.PI/2,zt=1,zm=1,chieu2Pull=0;const pp=new THREE.Vector3();function dseg(p,a,b){const dx=b.x-a.x,dz=b.z-a.z,l=dx*dx+dz*dz;let t=l?((p.x-a.x)*dx+(p.z-a.z)*dz)/l:0;t=Math.max(0,Math.min(1,t));return Math.hypot(p.x-(a.x+t*dx),p.z-(a.z+t*dz))}addEventListener('wheel',e=>{e.preventDefault();zt=Math.max(.5,Math.min(2.2,zt*(e.deltaY>0?1.1:.9)))},{passive:false});
+const ANI_PRI={idle:0,run:0,chieu1:1,noitai:2,chieu2:3};
+function go(n,o){const a=acts[n];if(!a)return;
+ // Không cho anim yếu cắt anim mạnh đang chạy (tránh giật khi ấn Q + chiêu 2 cùng lúc)
+ if(o&&cur&&ANI_PRI[cur]>ANI_PRI[n]&&oneT>0)return;
+ if(cur===n&&!o)return;
+ const p=acts[cur];
+ a.reset();a.enabled=true;
+ if(o){a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true}else a.setLoop(THREE.LoopRepeat,Infinity);
+ a.setEffectiveWeight(1);
+ // Chiêu vào nhanh hơn, giảm cảm giác lấy đà quá lâu nhưng vẫn giữ nhịp vung kiếm.
+ a.setEffectiveTimeScale(n==="chieu1"?2.2:n==="chieu2"?1.36:n==="noitai"?1.08:1);a.play();
+ // Chuyển vào animation tấn công ngắn hơn để động tác có lực và dứt khoát.
+ if(p&&p!==a){p.crossFadeTo(a,o?(n==="chieu1"||n==="chieu2"||n==="noitai"?.012:.03):.035,false)}
+ cur=n}
+function once(n){const a=acts[n];if(!a)return;
+ // Nếu đang chạy anim ưu tiên cao hơn thì bỏ qua
+ if(cur&&ANI_PRI[cur]>ANI_PRI[n]&&oneT>0)return;
+ ac++;go(n,true);
+ const dur=a.getClip().duration;
+ // Buffer đủ dài để anim chạy hết, chieu2 thêm buffer để không bị cắt sớm
+ oneT=dur/(n==="chieu1"?2.2:n==="chieu2"?1.36:n==="noitai"?1.08:1)+(n==="noitai"?0.18:n==="chieu2"?0.07:n==="chieu1"?0.025:0)}const act=a=>a==='q'?throwFlower():a==='p'?assassinate():skill2();const press=a=>{if(netLock||pdead>0)return;if(lunge&&a==='e'){pend='e';pendT=.4;return}if(!act(a)){pend=a;pendT=.25}};
+function aimDir(){const d=new THREE.Vector3(mw.x-pos.x,0,mw.z-pos.z);if(d.lengthSq()<.01)d.set(Math.sin(hero.rotation.y),0,Math.cos(hero.rotation.y));return d.normalize()}
+// Skills
+function throwFlower(){if(cd1>0||lunge)return false;cd1=CD_Q;
+ // Không xóa bông cũ khi ném; chỉ xóa khi trúng địch và tạo 3 bông mới
+ const m=new THREE.Mesh(new THREE.SphereGeometry(.4,10,8),new THREE.MeshBasicMaterial({color:0xff7ab8}));m.position.set(pos.x,1.2,pos.z);scene.add(m);const near=enemies.some(e=>!e.dead&&dist(e.g.position,pos)<=R_E+(e.bag?.525:.6));if(!near)faceT=0;const sd=near?new THREE.Vector3(Math.sin(hero.rotation.y),0,Math.cos(hero.rotation.y)):aimDir();shots.push({m,d:sd,s:0});netShot(sd);once("chieu1");return true}
+function assassinate(){if(passive>0||lunge)return false;let best=null,bd=1e9;
+ for(const e of enemies){if(e.dead||dist(e.g.position,pos)>R_P+(e.bag?.525:.6))continue;const d=dist(e.g.position,mw);if(d<bd){bd=d;best=e}}
+ // Nội tại không khí chỉ kích hoạt khi đã thả hết phím di chuyển và đứng yên.
+ // Nếu vẫn giữ W/A/S/D, từ chối kích hoạt; lệnh có thể thử lại khi nhân vật dừng.
+ if(!best){
+  if(keys.w||keys.a||keys.s||keys.d)return false;
+  passive=CD_P;once("noitai");dashT=Math.max(dashT,.28);spawnDashFlash();pend=null;return true
+ }
+ const dir=new THREE.Vector3().subVectors(best.g.position,pos).setY(0).normalize();
+ const to=best.g.position.clone().addScaledVector(dir,-1.1);
+ lunge={e:best,from:pos.clone(),to,t:0,dur:Math.max(.08,pos.distanceTo(to)/34)};spawnDashFlash();
+ pend=null; // đang lướt đâm → không nhận chiêu 2
+ passive=CD_P;once("noitai");return true}
+function skill2(){if(cd2>0||lunge)return false;bT=.2;spawnDashFlash();netFx({k:'b',x:+pos.x.toFixed(1),z:+pos.z.toFixed(1),r:R_E,fl:1,d:.2,s:.15});const hs=enemies.filter(e=>!e.dead&&dist(e.g.position,pos)<=R_E+(e.bag?.525:.6));if(!hs.length)return true;cd2=CD_E;dashT=.25;for(const e of hs){hit(e,30);enemySlash(e);}
+cd1=Math.max(0,cd1-2);once("chieu2");faceY=hero.rotation.y;faceT=.45;chieu2Pull=0;return true}
+function setSk(k,cd,max,txt){$('t'+k).textContent=cd>0?cd.toFixed(1)+'s':txt;$('i'+k).style.transform='scaleY('+Math.min(1,cd/max)+')';$('k'+k).classList.toggle('rdy',cd<=0)}
+// Loop
+const clock=new THREE.Clock();
+function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.05),T=clock.elapsedTime;
+ netTick(dt);ray.setFromCamera(mn,cam);ray.ray.intersectPlane(plane,mw);
+ passive=Math.max(0,passive-dt);cd1=Math.max(0,cd1-dt);cd2=Math.max(0,cd2-dt);dashT=Math.max(0,dashT-dt);
+ // Joystick: suavizar a entrada para que nhân vật đổi hướng/mức chạy mượt hơn.
+ const stickSmooth=1-Math.exp(-dt*26);stickX+=(stickTX-stickX)*stickSmooth;stickY+=(stickTY-stickY)*stickSmooth;
+ // Move: WASD điều khiển nhân vật đồng thời làm núm joystick chuyển động trực quan.
+ // Khi người chơi đang kéo joystick bằng chuột/cảm ứng, không ghi đè vị trí núm.
+ if(stickPointer===null){
+  const kx=(keys.d?1:0)-(keys.a?1:0),ky=(keys.s?1:0)-(keys.w?1:0),kl=Math.hypot(kx,ky);
+  const r=moveStick.getBoundingClientRect(),max=r.width*.34,scale=kl>1?1/kl:1;
+  moveKnob.style.transform=`translate(${kx*scale*max}px,${ky*scale*max}px)`;
+ }
+ const mx=pdead>0?0:((keys.d?1:0)-(keys.a?1:0)+stickX),mz=pdead>0?0:((keys.s?1:0)-(keys.w?1:0)+stickY),ml=Math.hypot(mx,mz);
+ if(lunge){lunge.t+=dt/lunge.dur;pos.lerpVectors(lunge.from,lunge.to,Math.min(1,lunge.t));
+  hero.rotation.y=Math.atan2(lunge.e.g.position.x-pos.x,lunge.e.g.position.z-pos.z);
+  // Chạm sớm: vừa đủ gần địch là kết thúc đâm ngay → chiêu 2 dùng được liền
+  const near=dist(pos,lunge.e.g.position)<=1.35+(lunge.e.bag?.525:0);
+  if(lunge.t>=1||near){
+  const te=lunge.e;
+  hit(te,45);
+  enemySlash(te);
+  // Hiệu ứng đâm xuyên nhỏ, sáng trắng-hồng; chỉ chạy khi cú đâm đã chạm mục tiêu.
+  const ix=te.g.position.x, iz=te.g.position.z;
+  const id=te.g.position.clone().sub(pos).setY(0).normalize();
+  // Lấy tọa độ thế giới từ mũi kiếm tại thời điểm va chạm, làm điểm xuất phát hiệu ứng.
+  if(sword){sword.updateMatrixWorld(true)}
+  const swordTip=sword?new THREE.Vector3(0,0,.78).applyMatrix4(sword.matrixWorld):hero.position.clone().add(new THREE.Vector3(0,1,0));
+  // Giữ điểm xuất phát tại mũi kiếm, căn hướng theo đường đâm tới mục tiêu.
+  // Không dùng trục local của kiếm vì mô hình có thể xoay/đặt trục khác nhau,
+  // khiến vệt hiệu ứng bị lệch khỏi vị trí va chạm.
+  passiveImpact(swordTip.x,swordTip.y,swordTip.z,ix,iz,id.x,id.z);
+  netFx({k:"pi",sx:+swordTip.x.toFixed(2),sy:+swordTip.y.toFixed(2),sz:+swordTip.z.toFixed(2),ex:+ix.toFixed(2),ez:+iz.toFixed(2),dx:+id.x.toFixed(3),dz:+id.z.toFixed(3)});
+  burst(ix,iz,1.45,0xffb7dc,0,.16,.28);
+  impactShake=.08;
+  faceY=hero.rotation.y;faceT=.4;dashT=Math.max(dashT,.28); // mỗi lần nội tại đánh trúng nhận 1 nhịp lướt
+  lunge=null}}
+ else{if(ml){const sp=dashT>0?26:8.5;pos.x=clamp(pos.x+mx/ml*sp*dt);pos.z=clamp(pos.z+mz/ml*sp*dt)}
+  if(faceET>0&&faceE&&!faceE.dead){faceET-=dt;hero.rotation.y=Math.atan2(faceE.g.position.x-pos.x,faceE.g.position.z-pos.z)}else{faceET=0;if(faceT>0){faceT-=dt;hero.rotation.y=faceY}else hero.rotation.y=Math.atan2(mw.x-pos.x,mw.z-pos.z)}}
+ if(pend){if(lunge&&pend==='e'){/* giữ lệnh chiêu 2, tung ngay khi chạm */}else{pendT-=dt;if(pendT<=0||act(pend))pend=null}}
+ const animStep=Math.min(dt,.033);
+ if(mixer){mixer.update(animStep);
+  // Chiêu 2: kéo mô hình về phía sau (local -Z)
+  // Tăng tuyến tính từ 0 → 1.0 trong đúng 0.4 giây, giữ đến hết anim
+  if(mdl){
+   mdl.rotation.y=cur==="chieu1"?C1:0;
+   if(cur==="chieu2"&&oneT>0){
+    chieu2Pull=Math.min(1.5,chieu2Pull+animStep*1.5/0.2);
+   }else{
+    chieu2Pull=0; // về vị trí cũ ngay lập tức khi hết anim
+   }
+   mdl.position.z=-chieu2Pull;
+  }
+  // Tối ưu kiếm theo animation – đặc biệt chiêu 2 để khớp tay hơn
+  if(sword && sword.userData.basePos){
+   const bp=sword.userData.basePos, br=sword.userData.baseRot;
+   if(cur==="chieu2" && oneT>0){
+    // Cuối chiêu 2: kiếm song song với cẳng tay (hướng từ khuỷu -> cổ tay)
+    // w tăng dần từ oneT=0.6 -> 0.3 rồi giữ đến hết anim
+    const k=Math.max(0,Math.min(1,(0.6-oneT)/0.3)),w=k*k*(3-2*k);
+    if(rhB&&rfa&&w>0){
+     mdl.updateMatrixWorld(true);
+     _v1.setFromMatrixPosition(rfa.matrixWorld);_v2.setFromMatrixPosition(rhB.matrixWorld);
+     _v2.sub(_v1).normalize();                         // hướng cẳng tay (world)
+     rhB.getWorldQuaternion(_q1).invert();_v2.applyQuaternion(_q1).normalize(); // -> local của bàn tay
+     _q2.setFromEuler(br);                              // xoay gốc của kiếm
+     _v1.set(0,0,1).applyQuaternion(_q2).normalize();   // hướng lưỡi kiếm hiện tại
+     _q3.setFromUnitVectors(_v1,_v2).multiply(_q2);     // xoay lưỡi kiếm trùng hướng cẳng tay
+     sword.quaternion.copy(_q2).slerp(_q3,w);
+     sword.position.set(bp.x+(_v2.x*bp.y-bp.x)*w,bp.y+(_v2.y*bp.y-bp.y)*w,bp.z+(_v2.z*bp.y-bp.z)*w);
+    }else{sword.position.copy(bp);sword.rotation.copy(br)}
+   }else if(cur==="noitai" && oneT>0){
+    // Nội tại (lao đâm): giữ kiếm thẳng hơn
+    sword.position.set(bp.x, bp.y-0.03, bp.z+0.05);
+    sword.rotation.set(br.x-0.1, br.y, br.z);
+   }else{
+    // Idle / Run / Chiêu 1: dùng grip mặc định
+    sword.position.copy(bp);
+    sword.rotation.copy(br);
+   }
+  }
+ if(oneT>0){oneT-=animStep;if(oneT<=0){oneT=0;go(ml&&!lunge?"run":"idle")}}
+ else{const want=ml&&!lunge?"run":"idle";if(cur!==want)go(want)}}
+ // Cập nhật vệt chém sau khi animation và tư thế kiếm đã được cập nhật
+ updateSlashTrail(dt,T);
+ // Shots
+ for(let i=shots.length-1;i>=0;i--){const s=shots[i],st=36*dt;s.m.position.addScaledVector(s.d,st);s.s+=st;let done=s.s>=R_Q;
+  if(!s.vis)for(const e of enemies){if(e.dead||Math.hypot(e.g.position.x-s.m.position.x,e.g.position.z-s.m.position.z)>1.2)continue;
+   hit(e,15);faceE=e;faceET=2;const b=Math.atan2(-s.d.z,-s.d.x);
+   // Chỉ xóa bông cũ khi trúng địch và sắp tạo 3 bông mới
+   clearFlowers(true);netFx({k:'fc',to:e.remote?e.id:null});
+   for(let k=0;k<3;k++){const a=b+k*2.0944;mkFlower(clamp(e.g.position.x+Math.cos(a)*FD),clamp(e.g.position.z+Math.sin(a)*FD),0,0,e.g.position.x,e.g.position.z)}
+   done=true;break}
+  // Đạn của đối thủ chạm người mình: dừng và nổ ngay tại chỗ, không bay xuyên qua (sát thương vẫn do người ném quyết định).
+  if(s.vis&&!done&&pdead<=0&&Math.hypot(pos.x-s.m.position.x,pos.z-s.m.position.z)<1.05){spawnDamageImpact({g:hero,bag:0});done=true}
+  if(done){scene.remove(s.m);if(s.m.geometry)s.m.geometry.dispose();if(s.m.material)s.m.material.dispose();shots.splice(i,1)}}
+ // Flowers
+ for(let i=flowers.length-1;i>=0;i--){const f=flowers[i];
+  if(f.fly){const F=f.fly;F.u=Math.min(1,F.u+dt/F.dur);const u=F.u,e=1-(1-u)*(1-u);
+   f.g.position.x=F.sx+(F.ex-F.sx)*e;f.g.position.z=F.sz+(F.ez-F.sz)*e;
+   f.g.position.y=1.4+(.8-1.4)*u*u+4*3.2*u*(1-u);
+   f.g.scale.setScalar(.3+.7*Math.min(1,u*2.5));f.g.rotation.y+=dt*18;f.g.rotation.x=(1-u)*Math.sin(u*9)*.6;
+   if(u>=1){f.g.position.set(F.ex,.8,F.ez);f.g.scale.setScalar(1);f.g.rotation.x=0;f.fly=null;burst(F.ex,F.ez,1.2,f.vis?0xff3030:0xff7ab8)}
+   continue}
+  f.t-=dt;f.g.rotation.y=T*2;f.g.position.y=.8+Math.sin(T*3+i)*.12;
+  const got=!f.vis&&dseg(f.g.position,pp,pos)<2.2;
+  if(got){passive=0;cd2=0;burst(pos.x,pos.z,2.5,0xff7ab8,0,.3,.2);netFx({k:'fp',x:f.x,z:f.z,id:f.id})}
+  if(f.t<=0||got){scene.remove(f.g);disposeObj(f.g);flowers.splice(i,1)}}
+ // Enemies
+ for(const e of enemies){if(e.remote){netRemote(e,dt);continue}if(online&&!isHost&&e.mid!=null){netMob(e,dt);continue}if(e.bag){e.flash=Math.max(0,e.flash-dt);e.hitT=Math.max(0,(e.hitT||0)-dt);const pulse=1+Math.sin((.18-e.hitT)/.18*Math.PI)*.12*(e.hitT>0?1:0);e.m.scale.setScalar(1.44*pulse);const band=e.g.children[1];if(band)band.scale.setScalar(1.44*pulse);e.m.material.emissive.setHex(e.flash>0?0xffffff:0);continue}if(e.dead){e.dead-=dt;if(e.dead<=0)respawn(e);continue}
+  e.tm-=dt;if(e.tm<=0){e.tm=1+Math.random()*2;const a=Math.random()*6.283,s=Math.random()<.4?0:1.5;e.vx=Math.cos(a)*s;e.vz=Math.sin(a)*s}
+  e.g.position.x=clamp(e.g.position.x+e.vx*dt);e.g.position.z=clamp(e.g.position.z+e.vz*dt);
+  e.flash=Math.max(0,e.flash-dt);e.hitT=Math.max(0,(e.hitT||0)-dt);const hitPulse=1+Math.sin((.18-e.hitT)/.18*Math.PI)*.16*(e.hitT>0?1:0);e.m.scale.setScalar(1.44*hitPulse);e.m.material.emissive.setHex(e.flash>0?0xffffff:0);
+  const r=e.hp/e.max;e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;e.bars.quaternion.copy(cam.quaternion)}
+ // Vệt cắt bám trên thân địch rồi mờ dần
+ for(let i=hitSlashes.length-1;i>=0;i--){const h=hitSlashes[i];h.t+=dt;const k=Math.max(0,1-h.t/h.d);h.mesh.material.opacity=k;h.mesh.scale.setScalar(1+.08*(1-k));if(h.t>=h.d){h.mesh.parent?.remove(h.mesh);h.mesh.geometry.dispose();h.mesh.material.dispose();hitSlashes.splice(i,1)}}
+ // FX
+ updateDashFlashes(dt,T);
+ updatePassiveImpacts(dt);
+ updateDamageImpacts(dt);
+ for(let i=fx.length-1;i>=0;i--){const f=fx[i];f.t+=dt/f.d;if(f.f){const q=f.f===1?pos:(f.f.g?f.f.g.position:null);if(q)f.m.position.set(q.x,.1,q.z)}f.m.scale.setScalar(f.r*(f.s+(1-f.s)*Math.min(1,f.t)));f.m.material.opacity=Math.max(0,1-f.t);
+  if(f.t>=1){scene.remove(f.m);if(f.m.geometry)f.m.geometry.dispose();if(f.m.material)f.m.material.dispose();fx.splice(i,1)}}
+ // Rings, HUD, camera
+ ringP.material.opacity=passive<=0?.9:0;bT=Math.max(0,bT-dt);lockT=Math.max(0,lockT-dt);s2ok=Math.max(0,s2ok-dt);ringE.material.opacity=bT>0?Math.min(1,bT/.1):0;
+ // Kiếm phát sáng khi nội tại sẵn sàng (màu chủ đạo hồng)
+ if(sword&&sword.userData.glowMat){const ready=passive<=0;const m=sword.userData.glowMat;
+  m.color.setHex(ready?0xff7ab8:(sword.userData.baseCol||0xdfe6ff));
+  m.emissive.setHex(ready?0xff4a9a:0x000000);
+  m.emissiveIntensity=ready?(.7+.3*Math.sin(T*7)):0}
+ setSk('p',passive,CD_P,'Chuột trái');setSk('q',cd1,CD_Q,'Q');setSk('e',cd2,CD_E,'Chuột phải');$('ke').classList.toggle('rdy',cd2<=0&&!lunge);
+ zm+=(zt-zm)*Math.min(1,dt*10);scene.fog.near=45*zm;scene.fog.far=130*zm;
+ impactShake=Math.max(0,impactShake-dt);
+ const shake=impactShake>0?impactShake*3.2:0;
+ cam.position.set(pos.x+(Math.random()-.5)*shake,24*zm+(Math.random()-.5)*shake,pos.z+15*zm+(Math.random()-.5)*shake);
+ cam.lookAt(pos.x,0,pos.z);
+ pp.copy(pos);ren.render(scene,cam)}
+
+// ===== ONLINE =====
+const CS_URL=`${location.protocol==='https:'?'wss':'ws'}://${location.host}`,CS_ROOM='Solo';
+let db=null,base='',code='',myId=Math.random().toString(36).slice(2,8),myJ=0,offs=0,tJoin=0,remotes={},mobs=[],mobT=[],lastSend=0,lastMob=0,room=null,pongCb=null;
+function ns(t,o){try{if(room)room.send(t,o)}catch(e){}}
+function pushEv(o){o.f=myId;o.t=Date.now()+offs;ns('e',o)}
+// Đồng bộ đồng hồ với server (lấy mẫu có RTT nhỏ nhất) → Date.now()+offs = giờ server
+async function syncClock(){let best=null;
+ for(let i=0;i<5;i++){
+  const r=await new Promise(res=>{const c0=Date.now(),to=setTimeout(()=>{pongCb=null;res(null)},600);
+   pongCb=s=>{clearTimeout(to);pongCb=null;const c1=Date.now();res({rtt:c1-c0,off:s+(c1-c0)/2-c1})};ns('ping',1)});
+  if(!r)break;if(!best||r.rtt<best.rtt)best=r;await new Promise(f=>setTimeout(f,80))}
+ if(best)offs=best.off}
+function netFx(o){if(online)pushEv(o)}
+function netDmgM(e,d){if(online)pushEv({k:'m',i:e.mid,d})}
+function netDmgP(e,d){if(online)pushEv({k:'d',to:e.id,d})}
+function netShot(d){if(online)pushEv({k:'s',x:+pos.x.toFixed(2),z:+pos.z.toFixed(2),dx:+d.x.toFixed(3),dz:+d.z.toFixed(3)})}
+function updHp(){$('hpi').style.width=(hp/HPMAX*100)+'%'}
+function updLabel(){$('rs').textContent='Phòng '+code+' · '+(Object.keys(remotes).length+1)+' người'+(isHost?' · chủ phòng':'')+(ping?' · ~'+Math.round(ping)+'ms':'')}
+function mkRemote(id){
+ const g=new THREE.Group(),r={g,remote:1,id,hp:HPMAX,max:HPMAX,dead:0,flash:0,acts:{},mx:null,mdl:null,cur:null,c:0,tx:0,tz:0,tr:0,bT:0,snaps:[],spd:0,oneT:0,loT:0,pull:0,mv:0};
+ if(gltfD){const m=THREE.SkeletonUtils.clone(gltfD.scene);m.scale.setScalar(1.44);let rh=null;
+  brightenModel(m);
+  m.traverse(o=>{if(o.isMesh)o.frustumCulled=false;if(o.isBone&&/RightHand$/.test(o.name))rh=o});
+  g.add(m);r.mdl=m;r.mx=new THREE.AnimationMixer(m);
+  for(const c of gltfD.animations)r.acts[c.name.trim().toLowerCase()]=r.mx.clipAction(c);
+  if(rh){const sw=makeSword(0xff4040);rh.add(sw);
+   // Giữ nguyên tọa độ kiếm gốc
+   sw.position.set(0,.55,0);sw.rotation.set(-Math.PI/2,0,0);sw.scale.setScalar(1.15);
+   sw.userData.basePos=sw.position.clone();sw.userData.baseRot=sw.rotation.clone();r.sword=sw}}
+ else{const b=new THREE.Mesh(new THREE.CylinderGeometry(.5,.6,1.4,12),L(0xff5555));b.position.y=.7;const h=new THREE.Mesh(new THREE.SphereGeometry(.4,12,10),L(0xffd9b0));h.position.y=1.8;g.add(b,h)}
+ const ringBase=ring(1.1,0xff5555,.7);g.add(ringBase);r.ringBase=ringBase;
+ const ringP=ring(R_P,0xff3030,0);g.add(ringP);r.ringP=ringP;
+ const ringE=ring(R_E,0xff6060,0);g.add(ringE);r.ringE=ringE;
+ const bars=new THREE.Group(),bg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x330000})),fg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0xff5555}));
+ fg.position.z=.01;bars.add(bg,fg);scene.add(g,bars);r.bars=bars;r.fg=fg;return r}
+// ---- Animation đối thủ: dùng ĐÚNG tốc độ/độ chồng lấn như máy người chơi để hai bên nhìn giống nhau ----
+const INTERP=.085,RT={chieu1:2.2,chieu2:1.36,noitai:1.08},RX={chieu1:.025,chieu2:.07,noitai:.18};
+function rPlay(e,n,isOnce){const a=e.acts[n];if(!a)return false;
+ const p=e.cur&&e.acts[e.cur];
+ a.reset();a.enabled=true;
+ if(isOnce){a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true}else a.setLoop(THREE.LoopRepeat,Infinity);
+ a.setEffectiveWeight(1);a.setEffectiveTimeScale(RT[n]||1);a.play();
+ if(p&&p!==a)p.crossFadeTo(a,isOnce?.012:.1,false);
+ e.cur=n;e.oneT=isOnce?a.getClip().duration/(RT[n]||1)+(RX[n]||0):0;return true}
+// Chiêu: chạy NGAY khi nhận lệnh (đếm c đổi), tôn trọng độ ưu tiên như máy chủ nhân vật, tự kết thúc bằng bộ đếm cục bộ.
+function rAttack(e,n,c){e.c=c;if(!RT[n])return;
+ if(e.cur&&e.oneT>0&&ANI_PRI[e.cur]>ANI_PRI[n])return;
+ rPlay(e,n,true)}
+// Chạy/đứng: suy ra từ tốc độ hiển thị thực tế (có trễ trễ chống nháy), không phụ thuộc gói tin.
+function rLoco(e,step,moving){
+ if(e.oneT>0){e.oneT-=step;if(e.oneT<=0){e.oneT=0;e.loT=0;rPlay(e,moving?'run':'idle',false)}return}
+ e.loT+=step;const want=moving?'run':'idle';
+ if(e.cur!==want&&(e.loT>.12||!e.cur||e.cur==='chieu1'||e.cur==='chieu2'||e.cur==='noitai')){e.loT=0;rPlay(e,want,false)}}
+function updateRemoteSlash(e,dt){
+ const active=(e.cur==="chieu2"||e.cur==="noitai")&&e.mx&&e.sword&&e.sword.parent;
+ if(!e.slashPts)e.slashPts=[];
+ if(active){e.sword.updateMatrixWorld(true);const tip=new THREE.Vector3(0,0,.78).applyMatrix4(e.sword.matrixWorld);const last=e.slashPts[e.slashPts.length-1];if(!last||tip.distanceTo(last.p)>.025)e.slashPts.push({p:tip,t:performance.now()/1000});}
+ const now=performance.now()/1000;e.slashPts=e.slashPts.filter(v=>now-v.t<.24);
+ if(!e.slashMesh){const geo=new THREE.BufferGeometry();const mat=new THREE.MeshBasicMaterial({color:0xff243f,transparent:true,opacity:.98,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});e.slashMesh=new THREE.Mesh(geo,mat);e.slashMesh.frustumCulled=false;e.slashMesh.renderOrder=9;scene.add(e.slashMesh)}
+ const pts=e.slashPts,verts=[],idx=[];if(pts.length>=2){const view=new THREE.Vector3();cam.getWorldDirection(view);for(let i=0;i<pts.length;i++){const a=pts[Math.max(0,i-1)].p,b=pts[Math.min(pts.length-1,i+1)].p,tan=b.clone().sub(a).normalize();let side=new THREE.Vector3().crossVectors(tan,view).normalize();if(side.lengthSq()<.001)side.set(1,0,0);const age=(now-pts[i].t)/.24,w=.24*Math.max(.08,1-age);verts.push(pts[i].p.x+side.x*w,pts[i].p.y+side.y*w,pts[i].p.z+side.z*w,pts[i].p.x-side.x*w,pts[i].p.y-side.y*w,pts[i].p.z-side.z*w);if(i<pts.length-1){const j=i*2;idx.push(j,j+1,j+2,j+1,j+3,j+2)}}}
+ e.slashMesh.geometry.dispose();e.slashMesh.geometry=new THREE.BufferGeometry();e.slashMesh.geometry.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));e.slashMesh.geometry.setIndex(idx);e.slashMesh.geometry.computeVertexNormals();e.slashMesh.material.opacity=pts.length>=2?.95:0;
+}
+function netRemote(e,dt){const p=e.g.position;
+ const ox=p.x,oz=p.z,step=Math.min(dt,.033),sn=e.snaps;
+ // Nội suy giữa hai gói tin tại thời điểm trễ cố định (INTERP) → quỹ đạo mượt, không đổi hướng đột ngột.
+ // Chỉ khi hết gói mới thì ngoại suy theo vận tốc (tối đa 0.25s) rồi dừng hẳn, không trôi vô hạn.
+ if(sn.length){
+  const lt=sn[sn.length-1].t;
+  // Đệm động = nhịp gói + độ rung mạng; đổi từ từ để chuyển động không bị co giãn thời gian.
+  const tg=Math.max(.07,Math.min(.24,e.gap+1.6*e.jit+.012));e.dly+=Math.max(-step*.03,Math.min(step*.06,tg-e.dly));
+  let rt=performance.now()/1000-e.base-e.dly;
+  if(rt<sn[0].t-.6)rt=lt-e.dly; // lệch quá nhiều → bám theo gói mới nhất
+  let i=-1;for(let j=0;j<sn.length;j++){if(sn[j].t<=rt)i=j;else break}
+  let gx,gz,gr,gv=0,gvx=0,gvz=0; // gvx/gvz: vận tốc mục tiêu theo dữ liệu mạng
+  if(i<0){const s=sn[0];gx=s.x;gz=s.z;gr=s.r}
+  else if(i===sn.length-1){const s=sn[i],xe=Math.max(0,rt-s.t),ex=Math.min(.6,xe),T=.3,m=T*(1-Math.exp(-ex/T)),f=xe<.6?Math.exp(-ex/T):0;
+   // Hết gói mới: ngoại suy giảm dần (không chạy thẳng rồi dừng cụt); cú lao không vượt quá điểm đích.
+   let ux=s.vx*m,uz=s.vz*m;gvx=s.vx*f;gvz=s.vz*f;
+   const lim=s.lx!=null?Math.hypot(s.lx-s.x,s.lz-s.z):2.2,ol=Math.hypot(ux,uz);
+   if(ol>lim){const c=lim/ol;ux*=c;uz*=c;gvx=gvz=0}
+   gx=s.x+ux;gz=s.z+uz;gr=s.r;gv=Math.hypot(gvx,gvz)}
+  else{const a=sn[i],b=sn[i+1];
+   if(b.tp){gx=b.x;gz=b.z;gr=b.r}
+   else{const w=Math.max(.001,b.t-a.t),u=Math.max(0,Math.min(1,(rt-a.t)/w));gx=a.x+(b.x-a.x)*u;gz=a.z+(b.z-a.z)*u;let dr=b.r-a.r;dr=Math.atan2(Math.sin(dr),Math.cos(dr));gr=a.r+dr*u;gvx=(b.x-a.x)/w;gvz=(b.z-a.z)/w;gv=Math.hypot(gvx,gvz)}}
+  while(sn.length>2&&sn[1].t<=rt)sn.shift();
+  const dd=Math.hypot(gx-p.x,gz-p.z);e.gv=gv;e.dd=dd;
+  if(dd>8){p.x=gx;p.z=gz;e.spd=0}
+  else if(dd<.02&&gv<.05){p.x=gx;p.z=gz}
+  else{ // đi sẵn theo vận tốc mục tiêu (hết trễ khi chạy đều) rồi mới kéo phần sai lệch còn lại
+   const fx=p.x+gvx*step,fz=p.z+gvz*step,k=1-Math.exp(-step*(dd>1.5?40:22));
+   p.x=fx+(gx-fx)*k;p.z=fz+(gz-fz)*k}
+  let d=gr-e.g.rotation.y;d=Math.atan2(Math.sin(d),Math.cos(d));e.g.rotation.y+=d*(1-Math.exp(-step*26));
+ }
+ // Tốc độ hiển thị thực → quyết định chạy/đứng (có độ trễ trạng thái chống nháy)
+ const sp=Math.hypot(p.x-ox,p.z-oz)/Math.max(.001,step);e.spd+=(sp-e.spd)*(1-Math.exp(-step*24));
+ // Vào chạy ngay khi dữ liệu mạng báo đang di chuyển (đoán trước, tránh trượt lúc bắt đầu);
+ // về đứng khi đã gần tới đích hoặc gần như không còn nhúc nhích (tránh trượt lúc kết thúc).
+ if((e.gv||0)>1.2)e.mv=1;else if(e.spd<.7||(e.dd||0)<.12)e.mv=0;
+ rLoco(e,step,e.mv===1);
+ // Nhịp chân khớp tốc độ thực: 8.5 đơn vị/giây ứng với tốc độ phát 1 như máy người chơi.
+ if(e.cur==='run'&&e.oneT<=0&&e.acts.run)e.acts.run.setEffectiveTimeScale(Math.max(.6,Math.min(1.4,e.spd/8.5)));
+ const alive=e.hp>0;e.g.visible=alive;e.bars.visible=alive;e.dead=alive?0:1;
+ const shown=Math.max(0,e.hp-(performance.now()<(e.pendT||0)?(e.pend||0):0));
+ const r=Math.max(0,shown/e.max);e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;e.bars.position.set(p.x,3.2,p.z);e.bars.quaternion.copy(cam.quaternion);
+ if(e.mx){e.mx.update(step);if(e.mdl){e.mdl.rotation.y=e.cur==="chieu1"?C1:0;
+  // Chiêu 2: kéo mô hình lùi như máy người chơi, để đòn nhìn giống nhau ở cả hai phía.
+  e.pull=(e.cur==="chieu2"&&e.oneT>0)?Math.min(1.5,e.pull+step*7.5):0;e.mdl.position.z=-e.pull}}
+ // Hiển thị kĩ năng đối thủ màu đỏ
+ e.bT=Math.max(0,(e.bT||0)-dt);
+ if(e.ringP){e.ringP.material.opacity=alive?.2:0; e.ringE.material.opacity=0; e.ringBase.material.opacity=alive?.5:.15} updateRemoteSlash(e,dt)}
+function netMob(e,dt){const t=mobT[e.mid];
+ if(t){const age=Math.min(.6,(performance.now()-mobTs)/1000),k=Math.min(1,dt*10),p=e.g.position;p.x+=(t[0]+(t[4]||0)*age-p.x)*k;p.z+=(t[1]+(t[5]||0)*age-p.z)*k;const pd=performance.now()<(e.pendT||0)?(e.pend||0):0;e.hp=Math.max(0,t[2]-pd);e.dead=t[3];e.g.visible=!t[3]}else e.g.visible=false;
+ e.flash=Math.max(0,e.flash-dt);e.m.material.emissive.setHex(e.flash>0?0xffffff:0);
+ const r=e.hp/e.max;e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;e.bars.quaternion.copy(cam.quaternion)}
+let lastP='',lastMk='',lastMs='',mobTs=0,me=null,ping=0,pingLbl=0,lastAc=0,lsX=0,lsZ=0,lsT=performance.now();
+function netTick(dt){
+ if(pdead>0){pdead-=dt;if(pdead<=0){hp=HPMAX;hero.visible=true;pos.set(0,0,0);lunge=null;updHp()}}
+ if(!online)return;
+ lastSend+=dt;
+ pingLbl+=dt;if(pingLbl>1){pingLbl=0;updLabel()}
+ // 20 gói/giây; gửi NGAY khi có hành động mới (ac đổi) để đối thủ thấy chiêu không chờ nhịp gửi.
+ if(lastSend>=((lunge||dashT>0)?.025:.05)||ac!==lastAc){const nowT=performance.now(),el=Math.max(.016,(nowT-lsT)/1000);
+  const vx=pdead>0?0:(pos.x-lsX)/el,vz=pdead>0?0:(pos.z-lsZ)/el;
+  const o={x:+pos.x.toFixed(2),z:+pos.z.toFixed(2),vx:+Math.max(-40,Math.min(40,vx)).toFixed(1),vz:+Math.max(-40,Math.min(40,vz)).toFixed(1),r:+hero.rotation.y.toFixed(2),a:cur||'idle',c:ac,h:hp,j:myJ,...(lunge?{lx:+lunge.to.x.toFixed(2),lz:+lunge.to.z.toFixed(2)}:{})},k=JSON.stringify(o);
+  if(k!==lastP){lastP=k;lastSend=0;lastAc=ac;lsX=pos.x;lsZ=pos.z;lsT=nowT;o.ts=Date.now()+offs;ns('p',o)}}
+ if(isHost){lastMob+=dt;const sig=mobs.map(e=>e.hp+(e.dead>0?'d':'')).join();
+  if(lastMob>=.066&&(sig!==lastMs||lastMob>=.2)){const a=mobs.map(e=>[+e.g.position.x.toFixed(1),+e.g.position.z.toFixed(1),e.hp,e.dead>0?1:0,+(e.vx||0).toFixed(2),+(e.vz||0).toFixed(2)]),k=JSON.stringify(a);
+   lastMob=0;if(k!==lastMk||sig!==lastMs){lastMk=k;lastMs=sig;ns('m',a)}}}}
+function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
+ if(v.k==='s'){const m=new THREE.Mesh(new THREE.SphereGeometry(.4,10,8),new THREE.MeshBasicMaterial({color:0xff3030}));
+  // Bù trễ đạn: đẩy viên đạn tới vị trí nó đáng ra đã bay tới.
+  const lag=Math.max(0,Math.min(.3,(Date.now()+offs-v.t)/1000)),adv=36*lag;
+  m.position.set(v.x+v.dx*adv,1.2,v.z+v.dz*adv);scene.add(m);shots.push({m,d:new THREE.Vector3(v.dx,0,v.dz),s:adv,vis:1,owner:v.f})}
+ else if(v.k==='d'&&v.to===myId&&pdead<=0){hp=Math.max(0,hp-v.d);updHp();if(hp<=0){pdead=3;hero.visible=false;lunge=null}}
+ else if(v.k==='pi'){passiveImpact(v.sx,v.sy,v.sz,v.ex,v.ez,v.dx,v.dz)}
+ else if(v.k==='b'){const r=remotes[v.f];if(r)r.bT=.35;burst(v.x,v.z,v.r,0xff3030,v.fl&&r?r:0,v.d,v.s)}
+ else if(v.k==='f')mkFlower(v.x,v.z,1,true,v.sx,v.sz);
+ else if(v.k==='fp'){ // đối thủ nhặt bông → xóa bông tương ứng trên máy mình
+  for(let i=flowers.length-1;i>=0;i--){const f=flowers[i];
+   if((v.id&&f.id===v.id)||(Math.abs(f.x-v.x)<.6&&Math.abs(f.z-v.z)<.6)){
+    const fx=f.g.position.x,fz=f.g.position.z;scene.remove(f.g);flowers.splice(i,1);burst(fx,fz,1.8,0xff3030,0,.25,.2)}}
+ }
+ else if(v.k==='fc'){clearFlowers(true);
+  // Người ném báo đã trúng: xóa viên đạn đang bay của họ (không để xuyên người); nếu trúng mình thì hiện va chạm trên người mình.
+  let gone=0;for(let i=shots.length-1;i>=0;i--){const s=shots[i];if(!s.vis||s.owner!==v.f)continue;
+   if(v.to===myId){s.m.position.x=pos.x;s.m.position.z=pos.z}
+   scene.remove(s.m);if(s.m.geometry)s.m.geometry.dispose();if(s.m.material)s.m.material.dispose();shots.splice(i,1);gone++}
+  if(gone&&v.to===myId&&pdead<=0)spawnDamageImpact({g:hero,bag:0})} // đối thủ trúng địch tạo 3 bông mới → xóa bông cũ
+ else if(v.k==='m'&&isHost){const e=mobs[v.i];if(e&&!e.dead)hit(e,v.d)}}
+async function join(c,mk){
+ if(!window.Colyseus?.Client){alert('Không tải được Colyseus');return}
+ code=c;$('rj').disabled=$('rn').disabled=true;
+ try{
+   const cl=new window.Colyseus.Client(CS_URL);
+   room=mk?await cl.create(CS_ROOM,{code:c}):await cl.joinOrCreate(CS_ROOM,{code:c});
+   myId=room.sessionId;const jl={};
+   const calcHost=()=>{let best=null,bj=0;for(const id in jl){const j=jl[id];if(best===null||j<bj||(j===bj&&id<best)){best=id;bj=j}}isHost=best===null||best===myId;updLabel()};
+   const proc=(id,d)=>{if(!d||id===myId)return;let r=remotes[id];
+    if(!r){r=remotes[id]=mkRemote(id);enemies.push(r);r.g.position.set(d.x,0,d.z);r.g.rotation.y=d.r;r.c=d.c} // vào phòng: không phát lại chiêu cũ
+    const sNow=Date.now()+offs,lat=d.ts?Math.max(0,Math.min(.35,(sNow-d.ts)/1000)):0;
+    if(d.ts)ping=ping?ping*.85+lat*150:lat*1000;
+    const vx=Math.max(-40,Math.min(40,d.vx||0)),vz=Math.max(-40,Math.min(40,d.vz||0));
+    // Lưu gói theo mốc thời gian của người gửi; gói đến muộn/sai thứ tự bị bỏ để không giật lùi.
+    const t=(d.ts||sNow)/1000,sn=r.snaps,last=sn[sn.length-1];
+    if(!last||t>last.t){
+     const dl=performance.now()/1000-t; // độ trễ tương đối (không phụ thuộc lệch đồng hồ hai máy)
+     if(r.base==null){r.base=dl;r.jit=.015;r.gap=.05;r.dly=.1}
+     else if(dl<r.base||dl-r.base>.6)r.base=dl; // gói nhanh nhất = mốc gốc; treo máy/đổi mạng → đồng bộ lại
+     else r.base+=(dl-r.base)*.004; // trôi chậm lên để bù lệch tốc độ đồng hồ
+     const q=dl-r.base;r.jit+=(q-r.jit)*(q>r.jit?.3:.02); // độ rung mạng: tăng nhanh, giảm chậm
+     if(last&&t-last.t<.12)r.gap+=(t-last.t-r.gap)*.1; // nhịp gói thực tế
+     sn.push({t,x:d.x,z:d.z,vx,vz,r:d.r,lx:d.lx,lz:d.lz,tp:!!last&&Math.hypot(d.x-last.x,d.z-last.z)>9});while(sn.length>12)sn.shift()}
+    if(d.h<r.hp&&r.pend)r.pend=Math.max(0,r.pend-(r.hp-d.h)); // đối soát dự đoán sát thương
+    r.hp=d.h;
+    if(d.c!==r.c)rAttack(r,d.a,d.c)};
+   room.onMessage('p',d=>{const id=d.id,nw=!(id in jl);jl[id]=d.j||0;proc(id,d);if(nw)calcHost()});
+   room.onMessage('leave',id=>{delete jl[id];const r=remotes[id];
+    if(r){scene.remove(r.g);scene.remove(r.bars);if(r.slashMesh){scene.remove(r.slashMesh);disposeObj(r.slashMesh)}const i=enemies.indexOf(r);if(i>=0)enemies.splice(i,1);delete remotes[id]}calcHost()});
+   room.onMessage('m',v=>{if(isHost)return;if(v){
+    // Đối soát dự đoán: máu thật đã giảm thì bớt phần dự đoán tương ứng để không trừ đôi.
+    for(let i=0;i<v.length;i++){const m=mobs[i],o=mobT[i];if(m&&m.pend&&o&&v[i]&&o[2]>v[i][2])m.pend=Math.max(0,m.pend-(o[2]-v[i][2]))}
+    mobT=v;mobTs=performance.now()}});
+   room.onMessage('e',onEv);
+   room.onMessage('pong',d=>{if(pongCb)pongCb(d.s)});
+   room.onLeave(()=>{if(online){online=false;alert('Mất kết nối với server')}});
+   addEventListener('pagehide',()=>{try{room.leave()}catch(e){}});
+   await syncClock();
+   myJ=tJoin=Date.now()+offs;jl[myId]=myJ;
+   const o={x:+pos.x.toFixed(1),z:+pos.z.toFixed(1),r:0,a:'idle',c:0,h:hp,j:myJ};lastP=JSON.stringify(o);o.ts=Date.now()+offs;
+   ns('p',o);ns('ready',1); // báo server gửi trạng thái người chơi/quái hiện có
+   mobs=enemies.filter(e=>e.mid!=null);online=true;netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();calcHost();
+ }catch(e){alert('Lỗi Colyseus: '+(e&&e.message||e));$('rj').disabled=$('rn').disabled=false;room=null}}
+$('ro').onclick=()=>{netLock=false;$('net').style.display='none'};
+$('rn').onclick=()=>{const c=String(1000+Math.floor(Math.random()*9000));$('rc').value=c;join(c,true)};
+$('rj').onclick=()=>{const c=$('rc').value.replace(/\D/g,'');if(!c){$('rc').focus();return}join(c)};
+$('rc').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter')$('rj').click()});
+$('rc').addEventListener('keyup',e=>e.stopPropagation());
+loop();
+})();
+</script></body></html>
