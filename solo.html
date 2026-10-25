@@ -31,7 +31,7 @@ canvas{display:block}
 #moveKnob{transition:transform .055s cubic-bezier(.2,.8,.2,1);will-change:transform;position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;border:2px solid rgba(235,242,255,.78);background:linear-gradient(145deg,rgba(150,180,235,.85),rgba(58,78,125,.9));box-shadow:0 3px 12px rgba(0,0,0,.4),inset 0 1px 5px rgba(255,255,255,.25);pointer-events:none;transform:translate(0,0)}
 @media(max-width:700px){#moveStick{width:124px;height:124px;bottom:max(24px,calc(env(safe-area-inset-bottom) + 14px))}#moveKnob{transition:transform .055s cubic-bezier(.2,.8,.2,1);will-change:transform;width:46px;height:46px;margin:-23px 0 0 -23px}#hud{left:160px;right:8px;gap:5px}.sk{min-width:0;flex:1;padding:7px 5px}}
 </style></head><body>
-<div id="net"><div>Số phòng<br><input id="rc" type="tel" maxlength="6" placeholder="1234"><br><button id="rn">Tạo phòng</button><button id="rj">Vào phòng</button><button id="ro">Chơi offline</button></div></div>
+<div id="net"><div>Số phòng<br><input id="rc" type="tel" maxlength="6" placeholder="1234"><br><label style="display:block;margin-top:8px;">Server LAN / Radmin VPN<br><input id="lanHost" type="text" placeholder="192.168.1.10:2567" style="font:18px system-ui;width:12em;text-align:center;background:#111833;color:var(--fg);border:2px solid #556;border-radius:8px;padding:6px"></label><br><button id="rn">Tạo phòng</button><button id="rj">Vào phòng</button><button id="ro">Chơi offline</button></div></div>
 <div id="hp"><i id="hpi"></i></div><div id="rs"></div>
 <div id="dbg"><button type="button" id="btnGod">Bot bất tử: Tắt</button><button type="button" id="btnStill">Bot đứng yên: Tắt</button><button type="button" id="btnCd">Hồi chiêu: Bật</button></div>
 <div id="moveStick" aria-label="Nút di chuyển" role="application"><div id="moveKnob"></div></div>
@@ -1299,7 +1299,22 @@ function updateBot(dt){
 }
 
 // ===== ONLINE =====
-const CS_URL=`${location.protocol==='https:'?'wss':'ws'}://${location.host}`,CS_ROOM='Solo';
+const DEFAULT_SERVER_PORT=2567;
+function resolveServerUrl(raw=''){
+ const value=String(raw||'').trim();
+ if(!value){return `${location.protocol==='https:'?'wss':'ws'}://${location.host}`}
+ if(/^wss?:\/\//i.test(value))return value;
+ if(/^https?:\/\//i.test(value))return value.replace(/^https?:\/\//i, location.protocol==='https:'?'wss://':'ws://');
+ const host=value.replace(/^\/+/, '').replace(/\/.*$/, '');
+ if(!host)return `${location.protocol==='https:'?'wss':'ws'}://${location.host}`;
+ const normalized=/:\d+$/.test(host)||host.includes(']')?host:host+':'+DEFAULT_SERVER_PORT;
+ return `${location.protocol==='https:'?'wss':'ws'}://${normalized}`;
+}
+let CS_URL=resolveServerUrl(),CS_ROOM='Solo';
+const lanKey='lanServerHost';
+const savedLanHost=localStorage.getItem(lanKey)||'';
+if(savedLanHost){$('lanHost').value=savedLanHost;CS_URL=resolveServerUrl(savedLanHost);}
+else if(location.hostname && !['localhost','127.0.0.1','0.0.0.0'].includes(location.hostname)){$('lanHost').value=location.hostname;CS_URL=resolveServerUrl(location.hostname);}
 let db=null,base='',code='',myId=Math.random().toString(36).slice(2,8),myJ=0,offs=0,tJoin=0,remotes={},mobs=[],mobT=[],lastSend=0,lastMob=0,room=null,pongCb=null,moveSeq=0,lastAckSeq=0;
 const predictionHistory=new Map();
 function ns(t,o){try{if(room)room.send(t,o)}catch(e){}}
@@ -1473,8 +1488,17 @@ function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
  else if(v.k==='m'&&isHost){const e=mobs[v.i];if(e&&!e.dead)hit(e,v.d)}}
 async function join(c,mk){
  if(!window.Colyseus?.Client){alert('Không tải được Colyseus');return}
- code=c;$('rj').disabled=$('rn').disabled=true;
+ code=c;$('rj').disabled=$('rn').disabled=$('ro').disabled=true;
+ godMode=stillMode=cdOff=false;
+ $('btnGod').textContent='Bot bất tử: Tắt';$('btnGod').classList.remove('on');
+ $('btnStill').textContent='Bot đứng yên: Tắt';$('btnStill').classList.remove('on');
+ $('btnCd').textContent='Hồi chiêu: Bật';$('btnCd').classList.remove('on');
+ $('dbg').style.display='none';
  try{
+   const lanHost=$('lanHost').value.trim();
+   if(lanHost){localStorage.setItem(lanKey,lanHost)}
+   else{localStorage.removeItem(lanKey)}
+   CS_URL=resolveServerUrl(lanHost);
    const cl=new window.Colyseus.Client(CS_URL);
    room=mk?await cl.create(CS_ROOM,{code:c}):await cl.joinOrCreate(CS_ROOM,{code:c});
    myId=room.sessionId;const jl={};
@@ -1524,8 +1548,8 @@ async function join(c,mk){
    const o={x:+pos.x.toFixed(1),z:+pos.z.toFixed(1),r:0,a:'idle',c:0,h:hp,j:myJ};lastP=JSON.stringify(o);o.ts=Date.now()+offs;
    ns('p',o);ns('ready',1); // báo server gửi trạng thái người chơi/quái hiện có
    mobs=enemies.filter(e=>e.mid!=null);online=true;netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();calcHost();
- }catch(e){alert('Lỗi Colyseus: '+(e&&e.message||e));$('rj').disabled=$('rn').disabled=false;room=null}}
-$('ro').onclick=()=>{netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();spawnBot()};
+ }catch(e){alert('Lỗi Colyseus: '+(e&&e.message||e));$('rj').disabled=$('rn').disabled=$('ro').disabled=false;$('dbg').style.display='flex';room=null}}
+$('ro').onclick=()=>{$('dbg').style.display='flex';$('rn').disabled=$('rj').disabled=false;netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();spawnBot()};
 $('rn').onclick=()=>{const c=String(1000+Math.floor(Math.random()*9000));$('rc').value=c;join(c,true)};
 $('rj').onclick=()=>{const c=$('rc').value.replace(/\D/g,'');if(!c){$('rc').focus();return}join(c)};
 $('rc').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter')$('rj').click()});
