@@ -9,8 +9,18 @@ export class Solo extends Room {
   onCreate(_options: any) {
     // vị trí / trạng thái người chơi → chuyển cho những người còn lại
     this.onMessage("p", (client, d) => {
-      this.last[client.sessionId] = d;
-      this.broadcast("p", { ...d, id: client.sessionId }, { except: client });
+      const predicted = Number.isSafeInteger(d?.seq)
+        && Number.isFinite(d?.x)
+        && Number.isFinite(d?.z);
+      const snapshot = predicted
+        ? { ...d, x: Math.max(-110, Math.min(110, d.x)), z: Math.max(-110, Math.min(110, d.z)) }
+        : d;
+
+      this.last[client.sessionId] = snapshot;
+      this.broadcast("p", { ...snapshot, id: client.sessionId }, { except: client });
+      if (predicted) {
+        client.send("ack", { seq: d.seq, x: snapshot.x, z: snapshot.z });
+      }
     });
     // sự kiện (chiêu, hiệu ứng, sát thương...)
     this.onMessage("e", (client, d) => this.broadcast("e", d, { except: client }));

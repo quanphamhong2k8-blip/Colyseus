@@ -30,11 +30,17 @@ or /playground for the Colyseus playground.
 - `npm run build`: build client (`dist/client/`) and server (`dist/server/`)
 - `npm run loadtest`: connect N simulated clients with [`@colyseus/loadtest`](https://github.com/colyseus/colyseus-loadtest/)
 
-The browser client, `src/client/client.lua`, and load test all join the `Solo`
-relay room. Player positions use the `p` message; `e` and `m` carry game events
-and mob state. The Lua example sends a starting position; connect its `p`
-updates to the game's actual player coordinates for live movement. The
-Schema-based `my_room` remains registered for the automated movement tests.
+The 3D game and `src/client/client.lua` use the `Solo` relay room. Player
+positions use the `p` message; `e` and `m` carry game events and mob state.
+The 3D client predicts its own movement locally, then reconciles sequenced
+position snapshots acknowledged by the room; the room clamps these snapshots
+to the arena bounds, and the client blends corrections over about 85 ms. Other
+players are interpolated from their snapshots. The Lua example sends a starting position;
+connect its `p` updates to the game's actual player coordinates for live
+movement. The separate `my_room` browser client demonstrates schema-based
+server prediction and is used by the automated movement tests.
+Open `/prediction.html` to try the predicted `my_room` browser client; the
+root page continues to launch the 3D game.
 For local development, the server binds to `0.0.0.0:2567`, allowing connections
 from other devices on the network. Open the game using this computer's LAN IP
 address (for example, `http://192.168.1.20:2567`); `0.0.0.0` is the bind
@@ -87,8 +93,8 @@ reconciler's plain predicted copy, and it is pure — no clocks, no randomness, 
 reads outside its arguments. Keep it that way, or prediction and server will
 disagree.
 
-To add client-side prediction, see the client wiring in `src/client/` (generated
-when the Vite layout is chosen) or the netcode guide:
+The client-side prediction wiring lives in `src/client/index.ts`; see the
+netcode guide for details:
 
 - https://docs.colyseus.io/netcode/server-input
 - https://docs.colyseus.io/netcode/client-prediction
@@ -106,9 +112,8 @@ fixed steps are due — that is the loop that decides how many inputs to send, s
 input rate follows the simulation rate rather than your monitor's refresh rate.
 
 Other players are not yours to predict, so they are interpolated (`mode: "lerp"`)
-toward the latest snapshot instead — with `smoothMs: 65` keeping their rendered
-velocity continuous at the cost of ~65 ms of extra display lag (lower it, or set
-0, when currency matters more than smoothness). Read every position through
+from buffered snapshots with a 65 ms render delay. The controlled player's
+correction offset decays over 65 ms to hide reconciliation errors. Read every position through
 `predict.value(player, "x")`: it returns the predicted value for your own
 entity and the interpolated one for everyone else.
 

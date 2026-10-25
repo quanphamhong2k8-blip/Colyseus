@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
   build: { outDir: "dist/client" },
   environments: {
     client: {
-      build: { rollupOptions: { input: ["index.html", "solo.html"] } },
+      build: { rollupOptions: { input: ["index.html", "solo.html", "prediction.html"] } },
     },
   },
   plugins: [

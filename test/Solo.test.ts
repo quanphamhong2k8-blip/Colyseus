@@ -45,4 +45,17 @@ describe("Solo relay room", () => {
       y: 240,
     });
   });
+
+  it("acknowledges sequenced movement snapshots to their sender", async () => {
+    const room = await colyseus.createRoom("Solo", {});
+    const player = await colyseus.connectTo(room);
+    const ack = new Promise<{ seq: number; x: number; z: number }>((resolve) => {
+      player.onMessage("ack", resolve);
+    });
+
+    player.send("p", { seq: 3, x: 120, z: 240 });
+    await room.waitForNextMessage();
+
+    assert.deepStrictEqual(await ack, { seq: 3, x: 110, z: 110 });
+  });
 });

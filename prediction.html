@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Client Prediction Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font: 16px system-ui, sans-serif;
+        background: #101522;
+        color: #edf2ff;
+      }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-content: center;
+        gap: 1rem;
+      }
+      header,
+      footer {
+        text-align: center;
+      }
+      #status {
+        color: #a9c7ff;
+      }
+      #arena {
+        width: min(800px, calc(100vw - 2rem));
+        aspect-ratio: 4 / 3;
+        position: relative;
+        overflow: hidden;
+        border: 1px solid #47536b;
+        border-radius: 0.75rem;
+        background-color: #1a2638;
+        background-image:
+          linear-gradient(#2a3950 1px, transparent 1px),
+          linear-gradient(90deg, #2a3950 1px, transparent 1px);
+        background-size: 40px 40px;
+      }
+      .player {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 24px;
+        height: 24px;
+        margin: -12px;
+        border-radius: 50%;
+        background: #ff718d;
+        box-shadow: 0 0 14px #ff718d88;
+        will-change: transform;
+      }
+      .player.self {
+        background: #71a8ff;
+        box-shadow: 0 0 18px #71a8ffbb;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Client-side prediction</strong>
+      <div id="status">Đang kết nối...</div>
+    </header>
+    <main id="arena" aria-label="Đấu trường demo"></main>
+    <footer>Dùng WASD hoặc phím mũi tên để di chuyển</footer>
+    <script type="module" src="/src/client/index.ts"></script>
+  </body>
+</html>

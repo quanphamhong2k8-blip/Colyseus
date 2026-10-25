@@ -14,6 +14,7 @@ export class MyRoom extends Room<{ state: MyRoomState, input: MoveInput }> {
    */
   inputs = this.defineInput(MoveInput, {
     bufferMaxSize: 64,
+    tickRate: TICK_RATE,
     sanitize: { moveX: [-1, 1], moveY: [-1, 1] },
   });
 

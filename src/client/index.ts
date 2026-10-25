@@ -1,6 +1,7 @@
-import { ColyseusSDK } from "@colyseus/sdk";
+import { ColyseusSDK, Predict } from "@colyseus/sdk";
 import type { default as server } from "../app.config.js";
-import { ARENA_HEIGHT, ARENA_WIDTH, TICK_RATE } from "../shared/constants.js";
+import { MoveInput } from "../rooms/schema/MyRoomState.js";
+import { ARENA_HEIGHT, ARENA_WIDTH } from "../shared/constants.js";
 import { stepEntity, type EntityState } from "../shared/movement.js";
 
 const statusEl = document.getElementById("status")!;
@@ -10,15 +11,6 @@ const client = new ColyseusSDK<typeof server>(
   `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`
 );
 
-type PlayerMessage = {
-  id: string;
-  x: number;
-  y: number;
-  vx?: number;
-  vy?: number;
-};
-
-const players = new Map<string, EntityState>();
 const nodes = new Map<string, HTMLElement>();
 const held = new Set<string>();
 
@@ -33,14 +25,6 @@ function axis(negative: string[], positive: string[]): -1 | 0 | 1 {
   return back ? -1 : 1;
 }
 
-function isPlayerMessage(data: unknown): data is PlayerMessage {
-  if (typeof data !== "object" || data === null) { return false; }
-  const player = data as Partial<PlayerMessage>;
-  return typeof player.id === "string"
-    && typeof player.x === "number"
-    && typeof player.y === "number";
-}
-
 function ensurePlayerNode(sessionId: string, selfId: string): HTMLElement {
   let node = nodes.get(sessionId);
   if (!node) {
@@ -53,83 +37,49 @@ function ensurePlayerNode(sessionId: string, selfId: string): HTMLElement {
 }
 
 async function main() {
-  const room = await client.joinOrCreate("Solo");
+  const room = await client.joinOrCreate("my_room");
   const selfId = room.sessionId;
-  const self: EntityState = {
-    x: ARENA_WIDTH / 2 + (Math.random() - 0.5) * 160,
-    y: ARENA_HEIGHT / 2 + (Math.random() - 0.5) * 160,
-    vx: 0,
-    vy: 0,
-  };
-  players.set(selfId, self);
-  ensurePlayerNode(selfId, selfId);
+  const predict = Predict.get(room, { mode: "lerp", delay: 65 });
+  predict.attachAll("players", { fields: ["x", "y"], mode: "lerp" });
+  const input = room.input({ type: MoveInput, mode: "reliable" });
+  let self: EntityState | undefined;
+  let reconciler: ReturnType<typeof predict.reconciler> | undefined;
 
-  room.onMessage("p", (data: PlayerMessage) => {
-    if (!isPlayerMessage(data) || data.id === selfId) { return; }
-    players.set(data.id, {
-      x: data.x,
-      y: data.y,
-      vx: data.vx ?? 0,
-      vy: data.vy ?? 0,
-    });
-    ensurePlayerNode(data.id, selfId);
-  });
-
-  room.onMessage("leave", (sessionId: string) => {
-    players.delete(sessionId);
-    nodes.get(sessionId)?.remove();
-    nodes.delete(sessionId);
-  });
-
-  room.onMessage("e", (payload: unknown) => {
-    dispatchEvent(new CustomEvent("colyseus:e", { detail: payload }));
-  });
-
-  room.onMessage("m", (payload: unknown) => {
-    dispatchEvent(new CustomEvent("colyseus:m", { detail: payload }));
-  });
-
-  room.onMessage("pong", (payload: { c: number; s: number }) => {
-    dispatchEvent(new CustomEvent("colyseus:pong", { detail: payload }));
-  });
-
-  room.send("ready");
-  statusEl.textContent = `Connected to Solo as ${selfId}`;
+  statusEl.textContent = `Connected to MyRoom as ${selfId}`;
 
   room.onLeave(() => {
     statusEl.textContent = "Disconnected";
-    players.clear();
+    reconciler?.dispose();
     nodes.forEach((node) => node.remove());
     nodes.clear();
   });
 
-  const stepSeconds = 1 / TICK_RATE;
-  let previousFrame = 0;
-  let accumulator = 0;
-  let lastPing = 0;
-
   function frame(now: number) {
-    if (previousFrame === 0) { previousFrame = now; }
-    accumulator += Math.min((now - previousFrame) / 1000, 0.25);
-    previousFrame = now;
+    const steps = predict.tick(now);
+    self ??= room.state.players.get(selfId);
 
-    while (accumulator >= stepSeconds) {
-      stepEntity(self, {
-        moveX: axis(["a", "arrowleft"], ["d", "arrowright"]),
-        moveY: axis(["w", "arrowup"], ["s", "arrowdown"]),
-      }, stepSeconds);
-      room.send("p", self);
-      accumulator -= stepSeconds;
+    if (self && !reconciler) {
+      reconciler = predict.reconciler(self, {
+        input,
+        fields: ["x", "y", "vx", "vy"],
+        step: (ctx, state, command) => stepEntity(state, command, ctx.dt),
+        smoothMs: 65,
+      });
     }
 
-    if (now - lastPing >= 5000) {
-      room.send("ping", now);
-      lastPing = now;
+    if (self && reconciler) {
+      for (let i = 0; i < steps; i++) {
+        input.data.moveX = axis(["a", "arrowleft"], ["d", "arrowright"]);
+        input.data.moveY = axis(["w", "arrowup"], ["s", "arrowdown"]);
+        input.send();
+      }
     }
 
-    for (const [sessionId, player] of players) {
+    for (const [sessionId, player] of room.state.players) {
       const node = ensurePlayerNode(sessionId, selfId);
-      node.style.transform = `translate(${player.x}px, ${player.y}px)`;
+      const x = predict.value(player, "x") * arenaEl.clientWidth / ARENA_WIDTH;
+      const y = predict.value(player, "y") * arenaEl.clientHeight / ARENA_HEIGHT;
+      node.style.transform = `translate(${x}px, ${y}px)`;
     }
 
     requestAnimationFrame(frame);
@@ -140,5 +90,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
-  statusEl.textContent = "Could not connect to Solo";
+  statusEl.textContent = "Could not connect to MyRoom";
 });
