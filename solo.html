@@ -570,8 +570,8 @@ function netRemote(e,dt){const p=e.g.position;
  // Chỉ khi hết gói mới thì ngoại suy theo vận tốc (tối đa 0.25s) rồi dừng hẳn, không trôi vô hạn.
  if(sn.length){
   const lt=sn[sn.length-1].t;
-  // Đệm động = nhịp gói + độ rung mạng; đổi từ từ để chuyển động không bị co giãn thời gian.
-  const tg=Math.max(.07,Math.min(.24,e.gap+1.6*e.jit+.012));e.dly+=Math.max(-step*.03,Math.min(step*.06,tg-e.dly));
+  // Đệm động = ít nhất INTERP, hoặc nhịp gói + độ rung mạng.
+  const tg=Math.max(INTERP,Math.min(.24,e.gap+1.6*e.jit+.012));e.dly+=Math.max(-step*.03,Math.min(step*.06,tg-e.dly));
   let rt=performance.now()/1000-e.base-e.dly;
   if(rt<sn[0].t-.6)rt=lt-e.dly; // lệch quá nhiều → bám theo gói mới nhất
   let i=-1;for(let j=0;j<sn.length;j++){if(sn[j].t<=rt)i=j;else break}
@@ -585,7 +585,20 @@ function netRemote(e,dt){const p=e.g.position;
    gx=s.x+ux;gz=s.z+uz;gr=s.r;gv=Math.hypot(gvx,gvz)}
   else{const a=sn[i],b=sn[i+1];
    if(b.tp){gx=b.x;gz=b.z;gr=b.r}
-   else{const w=Math.max(.001,b.t-a.t),u=Math.max(0,Math.min(1,(rt-a.t)/w));gx=a.x+(b.x-a.x)*u;gz=a.z+(b.z-a.z)*u;let dr=b.r-a.r;dr=Math.atan2(Math.sin(dr),Math.cos(dr));gr=a.r+dr*u;gvx=(b.x-a.x)/w;gvz=(b.z-a.z)/w;gv=Math.hypot(gvx,gvz)}}
+  else{
+   const w=Math.max(.001,b.t-a.t),u=Math.max(0,Math.min(1,(rt-a.t)/w)),u2=u*u,u3=u2*u;
+   const h00=2*u3-3*u2+1,h10=u3-2*u2+u,h01=-2*u3+3*u2,h11=u3-u2;
+   const rawX=h00*a.x+h10*w*a.vx+h01*b.x+h11*w*b.vx;
+   const rawZ=h00*a.z+h10*w*a.vz+h01*b.z+h11*w*b.vz;
+   const dh00=(6*u2-6*u)/w,dh10=3*u2-4*u+1,dh01=(-6*u2+6*u)/w,dh11=3*u2-2*u;
+   gvx=dh00*a.x+dh10*a.vx+dh01*b.x+dh11*b.vx;
+   gvz=dh00*a.z+dh10*a.vz+dh01*b.z+dh11*b.vz;
+   // Giới hạn overshoot khi đổi hướng mạnh, tránh nhân vật lắc quanh hai snapshot.
+   gx=Math.max(Math.min(a.x,b.x),Math.min(Math.max(a.x,b.x),rawX));
+   gz=Math.max(Math.min(a.z,b.z),Math.min(Math.max(a.z,b.z),rawZ));
+   if(gx!==rawX)gvx=0;if(gz!==rawZ)gvz=0;
+   let dr=b.r-a.r;dr=Math.atan2(Math.sin(dr),Math.cos(dr));gr=a.r+dr*u;gv=Math.hypot(gvx,gvz)
+  }}
   while(sn.length>2&&sn[1].t<=rt)sn.shift();
   const dd=Math.hypot(gx-p.x,gz-p.z);e.gv=gv;e.dd=dd;
   if(dd>8){p.x=gx;p.z=gz;e.spd=0}
