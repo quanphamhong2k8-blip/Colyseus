@@ -529,7 +529,7 @@ function updateBigSlashes(dt){
  }
 }
 // Enemies
-const HPMAX=20000,ATK=450,DMG_P=530,DMG_Q=700,DMG_E=400,DMG_E_PCT=.02,HEAL_PCT=.02,HEAL_ATK=.005,HEAL_ATK_PER=100,ULT_HEAL_MUL=2,JIT=50; // HEAL_ATK_PER: cứ mỗi 100 công vật lý hồi thêm HEAL_ATK (0,5%); ULT_HEAL_MUL: hệ số hồi máu khi đang miễn khống (chiêu 3); JIT: dame và lượng hồi máu dao động ±JIT
+const HPMAX=20000,ATK=450,DMG_P=530,DMG_Q=700,DMG_E=400,DMG_E_PCT=.02,PLAYER_DMG_MULT=1.2,HEAL_PCT=.02,HEAL_ATK=.005,HEAL_ATK_PER=100,ULT_HEAL_MUL=2,JIT=50; // HEAL_ATK_PER: cứ mỗi 100 công vật lý hồi thêm HEAL_ATK (0,5%); ULT_HEAL_MUL: hệ số hồi máu khi đang miễn khống (chiêu 3); JIT: dame và lượng hồi máu dao động ±JIT
 const jit=()=>(Math.random()*2-1)*JIT;let online=false,isHost=true,ac=0,pdead=0,hp=HPMAX,gltfD=null,netLock=true;
 // ===== VẠCH RÚT MÁU (trắng) nằm sau vạch máu chính: giữ ~0,2s rồi tụt dần; hồi máu thì bám theo ngay =====
 const trails=[];
@@ -595,7 +595,7 @@ function updateDamageImpacts(dt){
 }
 // Dự đoán sát thương cục bộ: trừ máu hiển thị ngay (e.pend), khi máu thật về thì đối soát.
 function addPend(e,d,ms){const n=performance.now();e.pend=(n<(e.pendT||0)?(e.pend||0):0)+d;e.pendT=n+ms}
-function hit(e,d,nj,showNum=true){spawnDamageImpact(e);if(e.bag)return;if(!nj)d=Math.max(1,Math.round(d+jit()));if(showNum&&!(e.bot&&godMode))floatNum(e.g.position.x,e.g.position.z,d,0,3.4);
+function hit(e,d,nj,showNum=true){spawnDamageImpact(e);if(e.bag)return;if(!nj)d=Math.max(1,Math.round(d+jit()));d=Math.max(1,Math.round(d*PLAYER_DMG_MULT));if(showNum&&!(e.bot&&godMode))floatNum(e.g.position.x,e.g.position.z,d,0,3.4);
  // Bot offline nhận sát thương + hiệu ứng như đối thủ, chết thì hồi sinh
  if(e.bot){e.flash=.05;e.hitT=.05;if(!godMode){e.hp=Math.max(0,e.hp-d);if(e.hp<=0){e.hp=0;e.dead=2.5;e.g.visible=false;if(e.bars)e.bars.visible=false}}return}
  if(e.remote){netDmgP(e,d);addPend(e,d,700);return}if(online&&!isHost){netDmgM(e,d);addPend(e,d,600);return}e.hp-=d;if(e.hp<=0){e.hp=0;e.dead=3;e.g.visible=false}}
@@ -1343,7 +1343,7 @@ function loop(){requestAnimationFrame(loop);const rawDt=clock.getDelta(),dt=Math
 let bot=null;
 function healAmt(maxHp,imm){return Math.max(0,Math.round(maxHp*(HEAL_PCT+HEAL_ATK*ATK/HEAL_ATK_PER)*(imm>0?ULT_HEAL_MUL:1)+jit()))} // nội tại: hồi 2% máu tối đa (+0,5% mỗi 100 công vật lý); có miễn khống (chiêu 3) thì x2; dao động ±50
 function dmgE(e){return DMG_E+DMG_E_PCT*(e.max||HPMAX)} // chiêu 2: 400 cố định + 2% máu tối đa
-function showSkill2Damage(e){if(e.bag||e.bot&&godMode)return;const x=e.g.position.x,z=e.g.position.z;floatNum(x,z,DMG_E,0,3.4,false,null,'s2-fixed');floatNum(x,z,Math.round(DMG_E_PCT*(e.max||HPMAX)+jit()),0,4.05,false,null,'s2-percent')}
+function showSkill2Damage(e){if(e.bag||e.bot&&godMode)return;const x=e.g.position.x,z=e.g.position.z;floatNum(x,z,Math.round(DMG_E*PLAYER_DMG_MULT),0,3.4,false,null,'s2-fixed');floatNum(x,z,Math.round((DMG_E_PCT*(e.max||HPMAX)+jit())*PLAYER_DMG_MULT),0,4.05,false,null,'s2-percent')}
 function hitSkill2(e){const total=dmgE(e);hit(e,total,false,false);showSkill2Damage(e)}
 function showSkill2DamageOnPlayer(){const x=hero.position.x,z=hero.position.z;floatNum(x,z,DMG_E,0,2.8,true,null,'s2-fixed');floatNum(x,z,Math.round(DMG_E_PCT*HPMAX+jit()),0,3.45,true,null,'s2-percent')}
 function healPlayer(){if(pdead>0)return;const h=healAmt(HPMAX,immuneT);hp=Math.min(HPMAX,hp+h);updHp();floatNum(hero.position.x,hero.position.z,h,1,2.8,true)}
