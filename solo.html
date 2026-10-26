@@ -1345,12 +1345,12 @@ function healAmt(maxHp,imm){return Math.max(0,Math.round(maxHp*(HEAL_PCT+HEAL_AT
 function dmgE(e){return DMG_E+DMG_E_PCT*(e.max||HPMAX)} // chiêu 2: 400 cố định + 2% máu tối đa
 function showSkill2Damage(e){if(e.bag||e.bot&&godMode)return;const x=e.g.position.x,z=e.g.position.z;floatNum(x,z,Math.round(DMG_E*PLAYER_DMG_MULT),0,3.4,false,null,'s2-fixed');floatNum(x,z,Math.round((DMG_E_PCT*(e.max||HPMAX)+jit())*PLAYER_DMG_MULT),0,4.05,false,null,'s2-percent')}
 function hitSkill2(e){const total=dmgE(e);hit(e,total,false,false);showSkill2Damage(e)}
-function showSkill2DamageOnPlayer(){const x=hero.position.x,z=hero.position.z;floatNum(x,z,DMG_E,0,2.8,true,null,'s2-fixed');floatNum(x,z,Math.round(DMG_E_PCT*HPMAX+jit()),0,3.45,true,null,'s2-percent')}
+function showSkill2DamageOnPlayer(){const x=hero.position.x,z=hero.position.z;floatNum(x,z,Math.round(DMG_E*PLAYER_DMG_MULT),0,2.8,true,null,'s2-fixed');floatNum(x,z,Math.round((DMG_E_PCT*HPMAX+jit())*PLAYER_DMG_MULT),0,3.45,true,null,'s2-percent')}
 function healPlayer(){if(pdead>0)return;const h=healAmt(HPMAX,immuneT);hp=Math.min(HPMAX,hp+h);updHp();floatNum(hero.position.x,hero.position.z,h,1,2.8,true)}
 function healBot(b){const h=healAmt(b.max,b.immuneT);b.hp=Math.min(b.max,b.hp+h);floatNum(b.g.position.x,b.g.position.z,h,1,3.4,false,b.g)}
 function damagePlayer(d,showNum=true){
  if(online||pdead>0)return;
- d=Math.max(1,Math.round(d+jit()));
+ d=Math.max(1,Math.round((d+jit())*PLAYER_DMG_MULT));
  if(showNum)floatNum(hero.position.x,hero.position.z,d,0,2.8,true);hp=Math.max(0,hp-d);updHp();spawnDamageImpact({g:hero,bag:0});
  if(hp<=0){pdead=3;hero.visible=false;lunge=null;ultWind=null;immuneT=0}
 }
