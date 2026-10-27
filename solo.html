@@ -33,7 +33,7 @@ canvas{display:block}
 #net button{font:15px system-ui;background:var(--panel);color:var(--fg);border:2px solid var(--acc);border-radius:8px;padding:8px 14px;margin:4px;cursor:pointer}
 #fnum{position:fixed;inset:0;pointer-events:none;z-index:5;overflow:hidden}
 .fn{position:absolute;left:0;top:0;font:700 13.2px system-ui,sans-serif;white-space:nowrap;text-shadow:0 0 2px #000,0 1px 3px #000}
-.fn.own-hp-number{font-size:17px}.fd{color:#a855f7}.fn.s2-fixed{color:#fff}.fn.s2-percent{color:#a855f7}.fh{color:#3bff6a}
+.fn.own-hp-number{font-size:17px}.fd,.fd.s2-fixed,.fd.s2-percent{color:#ff4040}.fd.zata-damage,.fd.zata-damage.s2-fixed,.fd.zata-damage.s2-percent{color:#a855f7}.fh{color:#3bff6a}
 #hp{display:none!important}
 #hp i{display:block;height:100%;width:100%;background:#44ff44}
 #rs{position:fixed;top:max(10px,env(safe-area-inset-top));right:12px;opacity:.8}
@@ -590,7 +590,7 @@ const damageImpacts=[];
 const fnumBox=document.createElement('div');fnumBox.id='fnum';document.body.appendChild(fnumBox);
 const fnums=[],_fnv=new THREE.Vector3();
 function floatNum(x,z,val,heal,y,mine=false,anchor=null,extraClass=''){
- const el=document.createElement('div');el.className='fn '+(heal?'fh':'fd')+((mine&&heal)?' own-hp-number':'')+(extraClass?' '+extraClass:'');el.textContent=Math.round(val);
+ const el=document.createElement('div');el.className='fn '+(heal?'fh':'fd')+((!heal&&zata)?' zata-damage':'')+((mine&&heal)?' own-hp-number':'')+(extraClass?' '+extraClass:'');el.textContent=Math.round(val);
  fnumBox.appendChild(el);
  // Hồi máu của người chơi và bot/địch được ghim lên đầu; sát thương vẫn giữ hiệu ứng bay như cũ.
  const pinnedHeal=!!heal;
@@ -1950,9 +1950,10 @@ function netRemote(e,dt){const p=e.g.position;if(e.immuneT>0)e.immuneT=Math.max(
 
 }
 function netMob(e,dt){const t=mobT[e.mid];
+ const tm=performance.now()/1000;
  if(t){const age=Math.min(.6,(performance.now()-mobTs)/1000),k=Math.min(1,dt*10),p=e.g.position;p.x+=(t[0]+(t[4]||0)*age-p.x)*k;p.z+=(t[1]+(t[5]||0)*age-p.z)*k;const pd=performance.now()<(e.pendT||0)?(e.pend||0):0;e.hp=Math.max(0,t[2]-pd);e.dead=t[3];e.g.visible=!t[3]}else e.g.visible=false;
  e.flash=Math.max(0,e.flash-dt);e.m.material.emissive.setHex(e.flash>0?0xffffff:0);
- const r=e.hp/e.max;e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;updImmFx(e,T);e.bars.position.set(e.g.position.x,ENEMY_BAR_Y,e.g.position.z);e.bars.quaternion.copy(cam.quaternion)}
+ const r=e.hp/e.max;e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;updImmFx(e,tm);e.bars.position.set(e.g.position.x,ENEMY_BAR_Y,e.g.position.z);e.bars.quaternion.copy(cam.quaternion)}
 let lastP='',lastMk='',lastMs='',mobTs=0,me=null,ping=0,pingLbl=0,lastAc=0,lsX=0,lsZ=0,lsT=performance.now();
 function netTick(dt){
  if(pdead>0){pdead-=dt;if(pdead<=0){pdead=0;hp=HPMAX;hero.visible=true;pos.set(0,0,0);lunge=null;predictionHistory.clear();correctionX=correctionZ=0;updHp()}}
