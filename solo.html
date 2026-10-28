@@ -684,7 +684,7 @@ let cdU=0,immuneT=0,aimMode='q',ultWind=null; // ultWind: nhịp khựng trướ
 let cdOff=false; // true = tắt thời gian hồi chiêu của mình (nội tại, chiêu 1, chiêu 2, Ulti)
 // Làm chậm: chiêu 1 trúng → "nạp" 1 đòn làm chậm; chiêu 2 trúng kế tiếp (đòn đầu tiên của chuỗi) làm địch chậm 90% (còn 10%) tốc độ di chuyển + lướt trong 1 giây.
 let skill2SlowCount=0;const SLOW_TIME=1,SLOW_FACTOR=.3,SLOW_DASH=.9; // Khi bị làm chậm, lướt nội tại (không gồm đâm) và chiêu 2 còn 90% tốc độ bình thường
-function slowEnemy(e){if(e&&!e.dead&&!e.bag&&!(e.bot&&e.immuneT>0))e.slowT=SLOW_TIME}
+function slowEnemy(e){if(e&&!e.dead&&!e.bag&&!((e.bot||e.remote)&&e.immuneT>0)){e.slowT=SLOW_TIME;if(e.remote&&online)pushEv({k:'sl',to:e.id})}} // đối thủ thật: báo máy kia tự bị chậm
 // Hiệu ứng làm chậm: mảnh băng tuyết và dải băng lưu lại trên đường di chuyển (không dùng vòng tròn nhấp nháy).
 const iceTrailFx=[];
 function spawnIceShard(x,z){
@@ -764,14 +764,14 @@ function stunPlayer(){if(pdead>0)return;
  // Miễn khống: không nhận choáng (và mọi hiệu ứng khống chế khác) khi còn thời gian miễn khống.
  if(immuneT>0){burst(pos.x,pos.z,1.8,0xffe66d,0,.2,.2);return}
  ultWind=null; // bị khống chế → hủy nhịp khựng của Ulti
- selfStunT=.75;selfStunX=pos.x;selfStunZ=pos.z;lunge=null;dashT=0;stickX=stickY=stickTX=stickTY=0;keys.w=keys.a=keys.s=keys.d=keys.q=keys.shift=keys.p=keys.e=keys.space=0;qAimActive=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;once('idle');selfStunFx.visible=true;}
+ selfStunT=.75;selfStunX=pos.x;selfStunZ=pos.z;lunge=null;dashT=0;stickX=stickY=stickTX=stickTY=0;keys.w=keys.a=keys.s=keys.d=keys.q=keys.shift=keys.p=keys.e=keys.space=0;qAimActive=false;qAimManual=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;once('idle');selfStunFx.visible=true;}
 const CODE_KEY={KeyQ:'q',KeyW:'w',KeyA:'a',KeyS:'s',KeyD:'d',KeyP:'p',KeyE:'e'};
  // Trạng thái phím ngắm thật (Q/Shift/Space) – không bị xóa khi bị choáng, để khôi phục mũi tên ngắm nếu người chơi vẫn đang giữ phím.
  const held={q:0,shift:0,space:0};
  function trackHeld(e,v){if(e.code==='KeyQ')held.q=v;else if(e.code==='ShiftLeft'||e.code==='ShiftRight')held.shift=v;else if(e.code==='Space')held.space=v}
 // Mất focus (Alt-Tab, bấm ra ngoài...) → bỏ trạng thái giữ phím, tránh kẹt phím / kẹt mũi tên ngắm.
 const touchAimCancels=[]; // mỗi nút cảm ứng đăng ký 1 hàm hủy để reset sạch trạng thái giữ khi mất focus
-function releaseAllKeys(){touchAimCancels.forEach(f=>{try{f()}catch(_){}});for(const k in keys)keys[k]=0;held.q=held.shift=held.space=0;touchAimHolding=false;touchAimMode=null;touchAimVector=null;qAimActive=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false}
+function releaseAllKeys(){touchAimCancels.forEach(f=>{try{f()}catch(_){}});for(const k in keys)keys[k]=0;held.q=held.shift=held.space=0;touchAimHolding=false;touchAimMode=null;touchAimVector=null;qAimActive=false;qAimManual=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false}
 addEventListener('blur',releaseAllKeys);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAllKeys()});
 addEventListener('pagehide',releaseAllKeys);
@@ -909,8 +909,8 @@ function bindSkillButton(id,kind){
   cam.updateMatrixWorld(true);
   const right=new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld,0);right.y=0;
   const up=new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld,1);up.y=0;
-  if(right.lengthSq()<.001||up.lengthSq()<.001){touchAimVector=new THREE.Vector3(dx,-dy,0).setY(0).normalize();return}
-  right.normalize();up.normalize();touchAimVector=right.multiplyScalar(dx).add(up.multiplyScalar(-dy)).setY(0).normalize();
+  if(right.lengthSq()<.001||up.lengthSq()<.001){touchAimVector=new THREE.Vector3(dx,-dy,0).setY(0).normalize();qAimManual=true;qAimTarget=null;return}
+  right.normalize();up.normalize();touchAimVector=right.multiplyScalar(dx).add(up.multiplyScalar(-dy)).setY(0).normalize();qAimManual=true;qAimTarget=null;
  };
  el.addEventListener('pointermove',onAimMove,{passive:false});addEventListener('pointermove',onAimMove,{passive:false}); // window: dự phòng khi ngón kéo ra ngoài mà mất capture
  const finish=(e,cancel=false)=>{if(activePointer===null||(e&&e.pointerId!==activePointer))return;if(e){e.preventDefault();e.stopPropagation()}activePointer=null;delete el.dataset.hold;el.classList.remove('aiming');if(kind==='q'||kind==='u'){touchAimHolding=false;touchAimMode=null}
@@ -929,9 +929,9 @@ function bindSkillButton(id,kind){
 }
 bindSkillButton('kq','q');bindSkillButton('ku','u');bindSkillButton('kp','p');bindSkillButton('ke','e');
 
-let qAimLock=null,qAimAnchorX=0,qAimAnchorY=0,qAimActive=false,qAimTarget=null,qAimHoverTarget=null,qAimHoverSelf=false;
-const PIN_DASH_SPEED=16,PIN_DASH_PAUSE=.1; // đối thủ chạy nhanh hơn PIN_DASH_SPEED (lướt) → ghim tự động khựng PIN_DASH_PAUSE giây rồi ghim lại
-let pinFreezeT=0,pinFreezeX=0,pinFreezeZ=0;const pinTrk={e:null,x:0,z:0,dash:false};
+let qAimLock=null,qAimAnchorX=0,qAimAnchorY=0,qAimActive=false,qAimTarget=null,qAimHoverTarget=null,qAimHoverSelf=false,qAimManual=false;
+const PIN_DASH_SPEED=12,PIN_DASH_PAUSE=.1; // mọi lướt (nội tại/chiêu2/ulti/dashT/ig/bT) → khóa HƯỚNG ghim 0,1s
+let pinFreezeT=0,pinFreezeDirX=0,pinFreezeDirZ=1;const pinTrk={e:null,x:0,z:0,dash:false};
 const AIM_STICK_DEADZONE=12; // px (bán kính tối đa của núm = 35): trong phạm vi này nút ngắm không kéo/không xoay
 let touchAimVector=null,touchAimHolding=false,touchAimMode=null; // trạng thái giữ joystick ngắm cảm ứng; đảm bảo mũi tên luôn hiện khi đang ngắm
 const Q_AIM_MOUSE_DEADZONE=3; // ghim yếu: chuột nhích từ 3 px là bỏ ghim (trước đây 8 px)
@@ -968,17 +968,20 @@ function aimDirInto(out){
  // Khi kéo nút ngắm mini, hướng kỹ năng lấy trực tiếp theo hướng joystick, không theo vị trí nút kỹ năng trên màn hình.
  if(qAimActive&&touchAimVector&&touchAimVector.lengthSq()>.001)return out.copy(touchAimVector).setY(0).normalize();
  let tx=mw.x,tz=mw.z;
- // Ưu tiên mục tiêu đang được trỏ chuột trực tiếp; nhờ vậy thả Q/Shift sẽ ném vào mô hình đó.
- const hovered=qAimActive?pickQAimHoverTarget():null;
- const selfHovered=qAimActive&&!hovered?pickQAimHoverSelf():false;
- if(selfHovered){
-  // Khi trỏ vào mô hình của chính mình, ném theo hướng nhân vật đang quay mặt.
-  return out.set(Math.sin(hero.rotation.y),0,Math.cos(hero.rotation.y)).normalize();
- }
- if(hovered&&!hovered.dead&&hovered.g){tx=hovered.g.position.x;tz=hovered.g.position.z}
- // Nếu đã ghim được đối thủ, luôn cập nhật theo vị trí mới của họ cho đến khi thả phím.
- else if(qAimActive&&qAimTarget&&!qAimTarget.dead&&qAimTarget.g){if(pinFreezeT>0){tx=pinFreezeX;tz=pinFreezeZ}else{tx=qAimTarget.g.position.x;tz=qAimTarget.g.position.z}}
- else if(qAimActive&&qAimLock){ray.setFromCamera(qAimLock,cam);if(ray.ray.intersectPlane(plane,_aimHit)){tx=_aimHit.x;tz=_aimHit.z}}
+ // Đã di chuột/stick để xoay → chỉ ngắm thủ công, không còn ghim/hover khóa mục tiêu.
+ if(!qAimManual){
+  const hovered=qAimActive?pickQAimHoverTarget():null;
+  const selfHovered=qAimActive&&!hovered?pickQAimHoverSelf():false;
+  if(selfHovered){
+   return out.set(Math.sin(hero.rotation.y),0,Math.cos(hero.rotation.y)).normalize();
+  }
+  if(hovered&&!hovered.dead&&hovered.g){tx=hovered.g.position.x;tz=hovered.g.position.z}
+  // Ghim mục tiêu; đang khóa hướng vì địch lướt (mọi loại lướt kể cả chiêu 2) thì giữ hướng cũ 0,1s.
+  else if(qAimActive&&qAimTarget&&!qAimTarget.dead&&qAimTarget.g){
+   if(pinFreezeT>0)return out.set(pinFreezeDirX,0,pinFreezeDirZ).normalize();
+   tx=qAimTarget.g.position.x;tz=qAimTarget.g.position.z}
+  else if(qAimActive&&qAimLock){ray.setFromCamera(qAimLock,cam);if(ray.ray.intersectPlane(plane,_aimHit)){tx=_aimHit.x;tz=_aimHit.z}}
+ }else if(qAimActive&&qAimLock){ray.setFromCamera(qAimLock,cam);if(ray.ray.intersectPlane(plane,_aimHit)){tx=_aimHit.x;tz=_aimHit.z}}
  out.set(tx-pos.x,0,tz-pos.z);
  if(out.lengthSq()<.01)out.set(Math.sin(hero.rotation.y),0,Math.cos(hero.rotation.y));
  return out.normalize();
@@ -1015,6 +1018,12 @@ const qAimRing=new THREE.Mesh(new THREE.RingGeometry(.38,.49,40),new THREE.MeshB
 qAimRing.rotation.x=-Math.PI/2;qAimRing.position.y=.12;qAimRing.renderOrder=22;scene.add(qAimRing);qAimRing.visible=false;
 const qAimDot=new THREE.Mesh(new THREE.CircleGeometry(.09,20),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.98,side:THREE.DoubleSide,depthWrite:false,depthTest:false,fog:false}));
 qAimDot.rotation.x=-Math.PI/2;qAimDot.position.y=.13;qAimDot.renderOrder=23;scene.add(qAimDot);qAimDot.visible=false;
+// Cột sáng đỏ mờ hẹp trên địch đang bị mũi tên ngắm ghim
+const aimLockFx=new THREE.Group();
+{const outer=new THREE.Mesh(new THREE.CylinderGeometry(.14,.2,4.6,14,1,true),new THREE.MeshBasicMaterial({color:0xff1a3a,transparent:true,opacity:.32,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}));
+ const core=new THREE.Mesh(new THREE.CylinderGeometry(.045,.07,4.8,10,1,true),new THREE.MeshBasicMaterial({color:0xff6a88,transparent:true,opacity:.55,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}));
+ outer.position.y=2.3;core.position.y=2.4;outer.renderOrder=core.renderOrder=24;outer.frustumCulled=core.frustumCulled=false;aimLockFx.add(outer,core);aimLockFx.visible=false;scene.add(aimLockFx)}
+
 // ===== ULTI (Space) =====
 // Mũi tên định hướng giống chiêu 1 nhưng rộng gấp 3 (0,8 × 3 = 2,4) và dài bằng bán kính giới hạn nội tại (R_P) tăng thêm 15%.
 const uAimLen=R_P*1.15*1.2,uAimReach=uAimLen*1.25,uAimWidth=qAimFlowerWidth*3*1.5*1.5,CD_U=20,ULT_SPEED=48.3,ULT_IMMUNE=3,ULT_FLOWER_BONUS=1,ULT_WINDUP=.2,ULT_BACK=1.7325,ULT_RING=1.155,ULT_ANIM_FRAC=.25,ULT_ANIM_END=.1; // ULT_ANIM_FRAC: phần animation chieu2 chạy trong nhịp khựng (25%); ULT_ANIM_END: 75% còn lại kết thúc trong 0,1s; ULT_BACK: quãng lùi ra sau trong nhịp khựng (lấy đà); uAimReach: tầm lao thực tế (xa hơn tầm hiển thị 25%); ULT_RING: bán kính vòng nhân vật địch (ringBase) — chạm vòng = chạm nhân vật
@@ -1053,7 +1062,7 @@ function ultimate(){
  ultWind={t:ULT_WINDUP,dir:dir.clone(),ry:Math.atan2(dir.x,dir.z),from:pos.clone()};
  hero.rotation.y=ultWind.ry;dashT=0;faceT=0;pend=null;
  // Animation chieu2: tốc độ chỉnh để trong ULT_WINDUP giây (0,2s) chỉ chạy 25% clip; 75% còn lại kết thúc trong 0,1s khi lao (xem ultStart).
- if(acts.chieu2)once('chieu2',ULT_ANIM_FRAC*acts.chieu2.getClip().duration/ULT_WINDUP);
+ if(acts.chieu2){netFx({k:'ua'});once('chieu2',ULT_ANIM_FRAC*acts.chieu2.getClip().duration/ULT_WINDUP)} // 'ua' gửi TRƯỚC gói có c mới → máy đối thủ nhận ra đây là Ulti
  return true;
 }
 function ultStart(w){
@@ -1091,7 +1100,7 @@ function ultTouch(te,dir){
  clearFlowers(false);netFx({k:'uc'});netFx({k:'im',d:+immuneT.toFixed(2)});
  const bb=Math.atan2(-dir.z,-dir.x);
  for(let k=0;k<3;k++){const a=bb+k*2.0944;mkFlower(clamp(te.g.position.x+Math.cos(a)*FD),clamp(te.g.position.z+Math.sin(a)*FD),0,0,te.g.position.x,te.g.position.z,'player');flowers[flowers.length-1].ult=true}
- burst(te.g.position.x,te.g.position.z,2.2,0xffd52a,0,.25,.3);impactShake=.06,impactShakeTime=.2;
+ burst(te.g.position.x,te.g.position.z,2.2,0xffd52a,0,.25,.3);impactShake=.06,impactShakeTime=.2;netFx({k:'ut',x:+te.g.position.x.toFixed(1),z:+te.g.position.z.toFixed(1),to:te.remote?te.id:null});
 }
 // Vùng ngắm trên nút cảm ứng (class .aiming): chỉ bật khi đang giữ nút VÀ kỹ năng đã hết hồi chiêu (tính lại mỗi khung hình, nên hết hồi chiêu giữa lúc giữ là hiện ngay).
 function syncAimUi(){
@@ -1109,6 +1118,9 @@ function updateQAim(dt){
   qAimPivot.position.set(pos.x,0,pos.z);qAimPivot.rotation.set(0,Math.atan2(-ultWind.dir.x,-ultWind.dir.z),0);
   const wx=pos.x+ultWind.dir.x*uAimLen,wz=pos.z+ultWind.dir.z*uAimLen;
   qAimRing.scale.setScalar(1.6);qAimRing.position.set(wx,.12,wz);qAimDot.position.set(wx,.13,wz);
+  // Ulti đang khựng: vẫn hiện cột sáng nếu đã ghim địch
+  {const t=(qAimTarget&&!qAimTarget.dead&&qAimTarget.g)?qAimTarget:null;
+   if(t){const tp=t.g.position;aimLockFx.position.set(tp.x,0,tp.z);aimLockFx.visible=true}else aimLockFx.visible=false}
   return;
  }
  syncAimUi();
@@ -1123,29 +1135,47 @@ function updateQAim(dt){
  const cooling=isQ?cd1>0:cdU>0; // đang hồi chiêu: không ngắm, không hiện mũi tên/vùng ngắm
  const aiming=holding&&pdead<=0&&!netLock&&!cooling;
  const show=aiming; // dùng cho cập nhật mục tiêu/điểm ngắm, không dùng để quyết định có thể tung chiêu
- if(aiming&&!qAimActive){qAimActive=true;qAimLock=mn.clone();qAimTarget=isQ?pickQAimTarget():pickQAimTarget(uAimReach+ULT_RING,true);qAimAnchorX=(mn.x+1)*innerWidth/2;qAimAnchorY=(1-mn.y)*innerHeight/2;}
+ if(aiming&&!qAimActive){qAimActive=true;qAimManual=false;qAimLock=mn.clone();qAimTarget=isQ?pickQAimTarget():pickQAimTarget(uAimReach+ULT_RING,true);qAimAnchorX=(mn.x+1)*innerWidth/2;qAimAnchorY=(1-mn.y)*innerHeight/2;}
  if(qAimActive&&!qAimLock)qAimLock=mn.clone(); // phòng trạng thái lệch: đang ngắm mà mất điểm khóa
- // Ghim tự động: mục tiêu vừa lướt → khựng 0,1s (giữ điểm cũ) rồi mới ghim lại.
+ // Ghim: địch lướt (nội tại / chiêu 2 Flo / Ulti / dashT / ig / bT) còn trong tầm → khóa HƯỚNG 0,1s rồi bám lại.
  if(qAimActive&&qAimTarget&&qAimTarget.g&&!qAimTarget.dead){
   const tp=qAimTarget.g.position;
   if(pinTrk.e!==qAimTarget){pinTrk.e=qAimTarget;pinTrk.x=tp.x;pinTrk.z=tp.z;pinTrk.dash=false;pinFreezeT=0}
   const moved=Math.hypot(tp.x-pinTrk.x,tp.z-pinTrk.z);
-  const dashing=moved<4&&(moved/dt>PIN_DASH_SPEED||qAimTarget.dashT>0); // moved>=4: dịch chuyển tức thời (hồi sinh), không tính là lướt
-  if(dashing&&!pinTrk.dash){pinFreezeT=PIN_DASH_PAUSE;pinFreezeX=pinTrk.x;pinFreezeZ=pinTrk.z}
+  const spd=moved/Math.max(dt,1e-4);
+  // Mọi loại lướt: dashT (nội tại/chiêu2), lunge, ig (online), bT (cửa sổ chiêu 2), anim chieu2 + tốc độ, hoặc tốc độ cao
+  const dashing=moved<4&&(
+   spd>PIN_DASH_SPEED ||
+   (qAimTarget.dashT||0)>0 ||
+   !!qAimTarget.lunge ||
+   !!qAimTarget.ig ||
+   (qAimTarget.bT||0)>0 ||
+   (qAimTarget.cur==='chieu2'&&(qAimTarget.oneT||0)>0&&spd>7)
+  );
+  if(dashing&&!pinTrk.dash){
+   const dx=pinTrk.x-pos.x,dz=pinTrk.z-pos.z,L=Math.hypot(dx,dz)||1;
+   pinFreezeDirX=dx/L;pinFreezeDirZ=dz/L;pinFreezeT=PIN_DASH_PAUSE;
+  }
   pinTrk.dash=dashing;pinTrk.x=tp.x;pinTrk.z=tp.z;
+  if(pinFreezeT>0){
+   pinFreezeT=Math.max(0,pinFreezeT-dt);
+   if(pinFreezeT<=0){
+    const range=aimMode==='u'?(uAimReach+(typeof ULT_RING!=='undefined'?ULT_RING:1.5)):(R_Q+2.5);
+    if(dist(tp,pos)>range){qAimTarget=null;if(qAimLock)qAimLock.copy(mn)}
+   }
+  }
  }else{pinTrk.e=null;pinTrk.dash=false;pinFreezeT=0}
- if(pinFreezeT>0)pinFreezeT=Math.max(0,pinFreezeT-dt);
- if(!aiming&&qAimActive){qAimActive=false;qAimLock=null;qAimTarget=null;if(!holding)touchAimVector=null;} // hết hồi chiêu giữa lúc đang giữ nút → tự bật lại ở khung sau
+ if(pinFreezeT>0&&!(qAimActive&&qAimTarget))pinFreezeT=0;
+ if(!aiming&&qAimActive){qAimActive=false;qAimManual=false;qAimLock=null;qAimTarget=null;if(!holding)touchAimVector=null;} // hết hồi chiêu giữa lúc đang giữ nút → tự bật lại ở khung sau
  qAimHoverTarget=show&&qAimActive?pickQAimHoverTarget():null;
  // Ưu tiên nhận diện đối thủ: rê chuột lên địch không được kích hoạt hủy ngắm của chính mình.
  qAimHoverSelf=show&&qAimActive&&!qAimHoverTarget?pickQAimHoverSelf():false;
  if(show&&qAimActive){
   const sx=(mn.x+1)*innerWidth/2,sy=(1-mn.y)*innerHeight/2;
   const mouseMove=Math.hypot(sx-qAimAnchorX,sy-qAimAnchorY);
-  // Khi người chơi chủ động di chuyển chuột đủ xa, bỏ ghim mục tiêu và chuyển ngay sang ngắm tự do.
+  // Khi người chơi chủ động di chuyển chuột đủ xa → tắt hẳn chức năng ghim trong phiên ngắm này.
   if(mouseMove>=Q_AIM_MOUSE_DEADZONE){
-   if(qAimTarget){qAimTarget=null;qAimLock.copy(mn);}
-   else qAimLock.copy(mn);
+   qAimManual=true;qAimTarget=null;qAimLock.copy(mn);
    qAimAnchorX=sx;qAimAnchorY=sy;
   }
   if(qAimTarget&&(qAimTarget.dead||!qAimTarget.g)){qAimTarget=null;qAimLock.copy(mn);qAimAnchorX=sx;qAimAnchorY=sy;}
@@ -1156,7 +1186,7 @@ function updateQAim(dt){
  qAimArrow.visible=qAimCenterLine.visible=showAimArrow&&isQ;
  uAimArrow.visible=uAimCenterLine.visible=showAimArrow&&!isQ;
  qAimRing.visible=qAimDot.visible=showAimArrow;
- if(!aiming)return;
+ if(!aiming){aimLockFx.visible=false;return;}
  // Khi giữ chiêu 1 / Ulti, hướng ngắm theo chuột; thân nhân vật vẫn giữ hướng di chuyển.
  const dir=aimDirInto(_aimTmp); // Chiêu 1 và Ulti dùng chung cách xoay: theo thẳng hướng ngắm, không làm mượt
  qAimPivot.position.set(pos.x,0,pos.z);qAimPivot.rotation.set(0,Math.atan2(-dir.x,-dir.z),0);
@@ -1164,12 +1194,16 @@ function updateQAim(dt){
  const ex=pos.x+dir.x*len,ez=pos.z+dir.z*len;
  qAimRing.scale.setScalar(isQ?1:1.6);
  qAimRing.position.set(ex,.12,ez);qAimDot.position.set(ex,.13,ez);
+ // Cột sáng đỏ mờ hẹp trên địch đang bị ghim / hover ngắm (tắt khi đã xoay chuột thủ công)
+ {const t=!qAimManual?((qAimHoverTarget&&!qAimHoverTarget.dead&&qAimHoverTarget.g)?qAimHoverTarget:((qAimTarget&&!qAimTarget.dead&&qAimTarget.g)?qAimTarget:null)):null;
+  if(t){const tp=t.g.position;aimLockFx.position.set(tp.x,0,tp.z);aimLockFx.rotation.y=performance.now()*.0012;aimLockFx.visible=true}
+  else aimLockFx.visible=false}
 }
 // Đang đâm nội tại hoặc vận Ulti (khựng + lao); chiêu 2 KHÔNG khóa chiêu 1: khóa chiêu 1 và ẩn mũi tên ngắm chiêu 1.
 // Khóa chỉ khi đang lao đâm / vận Ulti; đâm trúng (lunge kết thúc) là mở khóa ngay, không chờ animation.
 function skillBusy(){return !!(lunge||ultWind)}
 // Skills
-function throwFlower(){if(selfStunT>0||cd1>0||skillBusy()){qAimActive=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;return false}cd1=CD_Q;
+function throwFlower(){if(selfStunT>0||cd1>0||skillBusy()){qAimActive=false;qAimManual=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;return false}cd1=CD_Q;
  // Không xóa bông cũ khi ném; chỉ xóa khi trúng địch và tạo 3 bông mới
  // Mô hình hoa bay theo một hướng cố định được chốt ngay lúc thả chiêu; không tự bẻ lái/homing giữa đường.
  const m=new THREE.Group();
@@ -1178,7 +1212,7 @@ function throwFlower(){if(selfStunT>0||cd1>0||skillBusy()){qAimActive=false;qAim
  m.add(new THREE.Mesh(new THREE.SphereGeometry(.13,8,6),new THREE.MeshBasicMaterial({color:0xffe060})));
  const sd=aimDir().clone().setY(0).normalize();
  const launchOffset=.48;m.position.set(pos.x+sd.x*launchOffset,1.2,pos.z+sd.z*launchOffset);scene.add(m);
- const near=enemies.some(e=>!e.dead&&dist(e.g.position,pos)<=R_E+(e.bag?.525:.6));if(!near)faceT=0;qAimActive=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;chieu1AimY=Math.atan2(sd.x,sd.z);shots.push({m,d:sd.clone(),s:0,speed:SHOT_SPEED});netShot(sd);SFX.play("chieu1nem",.8);once("chieu1");return true}
+ const near=enemies.some(e=>!e.dead&&dist(e.g.position,pos)<=R_E+(e.bag?.525:.6));if(!near)faceT=0;qAimActive=false;qAimManual=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;chieu1AimY=Math.atan2(sd.x,sd.z);shots.push({m,d:sd.clone(),s:0,speed:SHOT_SPEED});netShot(sd);SFX.play("chieu1nem",.8);once("chieu1");return true}
 // ===== ÂM THANH KỸ NĂNG =====
 // noitai: base64 (phát khi đâm trúng). chieu2: 3 âm tải từ GitHub (jsDelivr trước, raw dự phòng) phát lần lượt mỗi lần tung chiêu 2;
 // chieu2 base64 cũ giữ làm dự phòng khi 3 âm online chưa tải xong / tải lỗi.
@@ -1833,6 +1867,11 @@ async function syncClock(){let best=null;
   if(!r)break;if(!best||r.rtt<best.rtt)best=r;await new Promise(f=>setTimeout(f,40))}
  if(best){offs=best.off;bestRtt=best.rtt;rtt=best.rtt;clockOffset=Date.now()+offs-performance.now();clockReady=true}}
 function netFx(o){if(online)pushEv(o)}
+// Hiệu ứng của đối thủ gắn giờ người gửi (ms). Vị trí đối thủ hiển thị trễ 'dly' → hoãn hiệu ứng tới đúng mốc rt đó để khớp chuyển động.
+function atRemote(id,tms,fn){const r=remotes[id];if(!r||r.base==null||!Number.isFinite(tms)){fn();return}
+ const q=r.evq||(r.evq=[]);q.push({at:tms/1000,fn});while(q.length>24)q.shift().fn()}
+function runEvq(e,rt){const q=e.evq;if(!q||!q.length)return;
+ for(let i=0;i<q.length;){if(q[i].at<=rt){const o=q.splice(i,1)[0];try{o.fn(Math.max(0,Math.min(.25,rt-o.at)))}catch(x){}}else i++}} // fn(late): hiệu ứng đã 'trễ' bao nhiêu giây so với giờ người gửi → tua nhanh để khớp
 function netDmgM(e,d){if(online)pushEv({k:'m',i:e.mid,d})}
 function netDmgP(e,d){if(online)pushEv({k:'d',to:e.id,d})}
 function netShot(d){if(online)pushEv({k:'s',x:+pos.x.toFixed(2),z:+pos.z.toFixed(2),dx:+d.x.toFixed(3),dz:+d.z.toFixed(3)})}
@@ -1850,7 +1889,7 @@ function mkRemote(id){
   if(rh){const sw=makeSword(0xff4040);rh.add(sw);
    // Giữ nguyên tọa độ kiếm gốc
    sw.position.set(0,.55,0);sw.rotation.set(-Math.PI/2,0,0);sw.scale.setScalar(1.15);
-   sw.userData.basePos=sw.position.clone();sw.userData.baseRot=sw.rotation.clone();r.sword=sw}}
+   sw.userData.basePos=sw.position.clone();sw.userData.baseRot=sw.rotation.clone();r.sword=sw;r.rhB=rh;r.rfa=rh.parent}}
  else{const b=new THREE.Mesh(new THREE.CylinderGeometry(.5,.6,1.4,12),L(0xff5555));b.position.y=.7;const h=new THREE.Mesh(new THREE.SphereGeometry(.4,12,10),L(0xffd9b0));h.position.y=1.8;g.add(b,h)}
  const ringBase=ring(1.1,0xff5555,.7);g.add(ringBase);r.ringBase=ringBase;
  const ringP=ring(R_P,0xff3030,0);g.add(ringP);r.ringP=ringP;
@@ -1858,18 +1897,43 @@ function mkRemote(id){
  const bars=new THREE.Group(),bg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x330000})),fg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0xff5555}));
  bars.scale.setScalar(1.8);fg.position.z=.01;bars.add(bg,fg);addTrail(bars,fg);scene.add(g,bars);r.bars=bars;r.fg=fg;addImmBar(r,bars);return r}
 // ---- Animation đối thủ: dùng ĐÚNG tốc độ/độ chồng lấn như máy người chơi để hai bên nhìn giống nhau ----
-const INTERP=.05,RT={chieu1:2.2,chieu2:1.36,noitai:NOITAI_TS},RX={chieu1:.025,chieu2:.07,noitai:NOITAI_HOLD};
-function rPlay(e,n,isOnce){const a=e.acts[n];if(!a)return false;
- const p=e.cur&&e.acts[e.cur];
+const INTERP=.035,EX_T=.22,EX_MAX=.45,RT={chieu1:2.2,chieu2:1.36,noitai:NOITAI_TS},RX={chieu1:.025,chieu2:.07,noitai:NOITAI_HOLD};
+function rPlay(e,n,isOnce,late,sc){const a=e.acts[n];if(!a)return false;
+ const p=e.cur&&e.acts[e.cur],k=sc||RT[n]||1,dur=a.getClip().duration;
  a.reset();a.enabled=true;
  if(isOnce){a.setLoop(THREE.LoopOnce,1);a.clampWhenFinished=true}else a.setLoop(THREE.LoopRepeat,Infinity);
- a.setEffectiveWeight(1);a.setEffectiveTimeScale(RT[n]||1);a.play();
+ a.setEffectiveWeight(1);a.setEffectiveTimeScale(k);a.play();
+ // Bù trễ: hiệu ứng khởi động muộn 'late' giây so với giờ người gửi → tua animation tới đúng pha mà máy họ đang chạy (tối đa 60% clip).
+ let skip=0;if(isOnce&&late>0){skip=Math.min(late,dur/k*.6);a.time=Math.min(dur*.95,skip*k)}
  if(p&&p!==a)p.crossFadeTo(a,isOnce?.012:.1,false);
- e.cur=n;e.oneT=isOnce?a.getClip().duration/(RT[n]||1)+(RX[n]||0):0;return true}
-// Chiêu: chạy NGAY khi nhận lệnh (đếm c đổi), tôn trọng độ ưu tiên như máy chủ nhân vật, tự kết thúc bằng bộ đếm cục bộ.
-function rAttack(e,n,c){e.c=c;if(e.stunT>0||!RT[n])return;
- if(e.cur&&e.oneT>0&&ANI_PRI[e.cur]>ANI_PRI[n])return;
- rPlay(e,n,true)}
+ e.cur=n;e.oneT=isOnce?Math.max(.01,dur/k+(RX[n]||0)-skip):0;return true}
+// Chiêu: chạy khi tới mốc giờ của người gửi (atRemote), bù phần trễ, và TIN máy gửi:
+// máy gửi chỉ tăng bộ đếm c khi chiêu thật sự được nhận (đã qua kiểm tra độ ưu tiên) → máy mình không tự chặn nữa, tránh lệch vài ms làm mất cú đánh.
+// Ulti: máy gửi báo trước bằng sự kiện 'ua' → chạy anim chiêu 2 chậm trong nhịp khựng (25% clip / 0,2s), rồi tăng tốc kết thúc trong 0,1s như máy họ.
+function rAttack(e,n,c,late,tsMs){e.c=c;if(e.stunT>0||!RT[n])return;
+ let sc=null;e.ultW=0;
+ if(n==='chieu2'&&e.ultAt!=null){
+  if(Number.isFinite(tsMs)&&Math.abs(tsMs/1000-e.ultAt)<.25&&e.acts.chieu2){sc=ULT_ANIM_FRAC*e.acts.chieu2.getClip().duration/ULT_WINDUP;e.ultW=Math.max(.001,ULT_WINDUP-(late||0))}
+  e.ultAt=null}
+ rPlay(e,n,true,late||0,sc)}
+// Tư thế kiếm của đối thủ giống hệt máy họ: chiêu 2 song song cẳng tay, nội tại giữ kiếm thẳng → vệt chém đỏ trên máy mình khớp với vệt bên họ.
+const _rv1=new THREE.Vector3(),_rv2=new THREE.Vector3(),_rq1=new THREE.Quaternion(),_rq2=new THREE.Quaternion(),_rq3=new THREE.Quaternion();
+function rSwordPose(e){const sw=e.sword;if(!sw||!sw.userData.basePos)return;
+ const bp=sw.userData.basePos,br=sw.userData.baseRot;
+ if(e.cur==='chieu2'&&e.oneT>0){
+  const k=Math.max(0,Math.min(1,(.6-e.oneT)/.3)),w=k*k*(3-2*k);
+  if(e.rhB&&e.rfa&&e.mdl&&w>0){
+   e.mdl.updateMatrixWorld(true);
+   _rv1.setFromMatrixPosition(e.rfa.matrixWorld);_rv2.setFromMatrixPosition(e.rhB.matrixWorld);
+   _rv2.sub(_rv1).normalize();
+   e.rhB.getWorldQuaternion(_rq1).invert();_rv2.applyQuaternion(_rq1).normalize();
+   _rq2.setFromEuler(br);_rv1.set(0,0,1).applyQuaternion(_rq2).normalize();
+   _rq3.setFromUnitVectors(_rv1,_rv2).multiply(_rq2);
+   sw.quaternion.copy(_rq2).slerp(_rq3,w);
+   sw.position.set(bp.x+(_rv2.x*bp.y-bp.x)*w,bp.y+(_rv2.y*bp.y-bp.y)*w,bp.z+(_rv2.z*bp.y-bp.z)*w)
+  }else{sw.position.copy(bp);sw.rotation.copy(br)}
+ }else if(e.cur==='noitai'&&e.oneT>0){sw.position.set(bp.x,bp.y-.03,bp.z+.05);sw.rotation.set(br.x-.1,br.y,br.z)}
+ else{sw.position.copy(bp);sw.rotation.copy(br)}}
 // Chạy/đứng: suy ra từ tốc độ hiển thị thực tế (có trễ trễ chống nháy), không phụ thuộc gói tin.
 function rLoco(e,step,moving){
  if(e.stunT>0){e.stunT=Math.max(0,e.stunT-step);if(e.cur!=='idle'||e.oneT>0){e.oneT=0;e.loT=0;rPlay(e,'idle',false)}return}
@@ -1887,21 +1951,47 @@ function updateRemoteSlash(e,dt){
  const pts=smoothTrailPts(e.slashPts),verts=[],idx=[];if(pts.length>=2){const view=new THREE.Vector3();cam.getWorldDirection(view);for(let i=0;i<pts.length;i++){const a=pts[Math.max(0,i-1)].p,b=pts[Math.min(pts.length-1,i+1)].p,tan=b.clone().sub(a).normalize();let side=new THREE.Vector3().crossVectors(tan,view).normalize();if(side.lengthSq()<.001)side.set(1,0,0);const age=(now-pts[i].t)/TRAIL_LIFE,w=.24*Math.max(.08,1-age);verts.push(pts[i].p.x+side.x*w,pts[i].p.y+side.y*w,pts[i].p.z+side.z*w,pts[i].p.x-side.x*w,pts[i].p.y-side.y*w,pts[i].p.z-side.z*w);if(i<pts.length-1){const j=i*2;idx.push(j,j+1,j+2,j+1,j+3,j+2)}}}
  if(pts.length>=2){ribbonSet(e.slashMesh,verts,idx);e.slashMesh.material.opacity=.95}else e.slashMesh.visible=false;
 }
-function netRemote(e,dt){const p=e.g.position;if(e.immuneT>0)e.immuneT=Math.max(0,e.immuneT-dt);updImmFx(e,performance.now()/1000);
+// Vệt lướt/lao của đối thủ: bật khi đang mô phỏng ý định lao/dash (e.ig), cùng kiểu với vệt của mình.
+function updateRemoteTrail(e){
+ const T=performance.now()/1000;
+ if(!e.dTr){const mat=new THREE.MeshBasicMaterial({color:0xd41436,transparent:true,opacity:.95,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
+  const mesh=new THREE.Mesh(new THREE.BufferGeometry(),mat);mesh.frustumCulled=false;mesh.renderOrder=10;scene.add(mesh);e.dTr={points:[],mesh,fibers:mkFiberMeshes(10)}}
+ const tr=e.dTr;
+ if(e.ig&&e.g.visible){const rot=e.g.rotation.y,x=e.g.position.x-Math.sin(rot)*.48,z=e.g.position.z-Math.cos(rot)*.48,last=tr.points[tr.points.length-1];
+  if(!last||Math.hypot(x-last.x,z-last.z)>.009)tr.points.push({x,z,t:T})}
+ tr.points=tr.points.filter(p=>T-p.t<.30);
+ const pts=tr.points;
+ if(pts.length<2){tr.mesh.visible=false;setFibersVisible(tr.fibers,false);return}
+ const gold=(e.immuneT||0)>0,op=Math.max(.05,.95*(1-(T-pts[0].t)/.36)),sides=[],widths=[];
+ for(let i=0;i<pts.length;i++){const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];
+  const dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz)||1;sides.push(new THREE.Vector3(-dz/len,0,dx/len));
+  widths.push(.22*Math.max(.08,1-(T-pts[i].t)/.30))}
+ const verts=[],indices=[];
+ for(let i=0;i<pts.length;i++){const p=pts[i],sd=sides[i],w=widths[i];
+  verts.push(p.x+sd.x*w,.82,p.z+sd.z*w,p.x-sd.x*w,.82,p.z-sd.z*w);
+  if(i<pts.length-1){const k=i*2;indices.push(k,k+1,k+2,k+1,k+3,k+2)}}
+ ribbonSet(tr.mesh,verts,indices);tr.mesh.material.opacity=op;tr.mesh.visible=true;
+ if(gold){tr.mesh.material.color.setHex(GOLD_CORE);tr.mesh.material.blending=THREE.NormalBlending;
+  updateGoldFibers(tr.fibers,pts.map(p=>({p:new THREE.Vector3(p.x,.82,p.z),t:p.t})),i=>sides[i],i=>widths[i],null,op)}
+ else{tr.mesh.material.color.setHex(0xd41436);tr.mesh.material.blending=THREE.AdditiveBlending;setFibersVisible(tr.fibers,false)}
+}
+function netRemote(e,dt){const p=e.g.position;if(e.immuneT>0)e.immuneT=Math.max(0,e.immuneT-dt);if(e.slowT>0)e.slowT=e.immuneT>0?0:Math.max(0,e.slowT-dt);e.ig=false;
+ runEvq(e,e.base!=null?performance.now()/1000-e.base-e.dly:1e18); // phát hiệu ứng/animation đúng nhịp hiển thị của đối thủ
+ updImmFx(e,performance.now()/1000);
  const ox=p.x,oz=p.z,step=Math.min(dt,.033),sn=e.snaps;
  // Nội suy giữa hai gói tin tại thời điểm trễ cố định (INTERP) → quỹ đạo mượt, không đổi hướng đột ngột.
  // Chỉ khi hết gói mới thì ngoại suy theo vận tốc (tối đa 0.25s) rồi dừng hẳn, không trôi vô hạn.
- if(e.stunT>0){p.x=e.stunX;p.z=e.stunZ;e.gv=0;e.dd=0;}
+ if(e.stunT>0){p.x=e.stunX;p.z=e.stunZ;e.gv=0;e.dd=0;if(e.lgs)e.lgs.length=0}
  else if(sn.length){
   const lt=sn[sn.length-1].t;
   // Đệm động = ít nhất INTERP, hoặc nhịp gói + độ rung mạng.
-  const tg=Math.max(INTERP,Math.min(.24,e.gap+1.6*e.jit+.012));e.dly+=Math.max(-step*.03,Math.min(step*.06,tg-e.dly));
+  const tg=Math.max(INTERP,Math.min(.24,e.gap+1.2*e.jit+.012));e.dly+=Math.max(-step*.03,Math.min(step*.06,tg-e.dly));
   let rt=performance.now()/1000-e.base-e.dly;
   if(rt<sn[0].t-.6)rt=lt-e.dly; // lệch quá nhiều → bám theo gói mới nhất
   let i=-1;for(let j=0;j<sn.length;j++){if(sn[j].t<=rt)i=j;else break}
   let gx,gz,gr,gv=0,gvx=0,gvz=0; // gvx/gvz: vận tốc mục tiêu theo dữ liệu mạng
   if(i<0){const s=sn[0];gx=s.x;gz=s.z;gr=s.r}
-  else if(i===sn.length-1){const s=sn[i],xe=Math.max(0,rt-s.t),ex=Math.min(.6,xe),T=.3,m=T*(1-Math.exp(-ex/T)),f=xe<.6?Math.exp(-ex/T):0;
+  else if(i===sn.length-1){const s=sn[i],xe=Math.max(0,rt-s.t),ex=Math.min(EX_MAX,xe),T=EX_T,m=T*(1-Math.exp(-ex/T)),f=xe<EX_MAX?Math.exp(-ex/T):0;
    // Hết gói mới: ngoại suy giảm dần (không chạy thẳng rồi dừng cụt); cú lao không vượt quá điểm đích.
    let ux=s.vx*m,uz=s.vz*m;gvx=s.vx*f;gvz=s.vz*f;
    const lim=s.lx!=null?Math.hypot(s.lx-s.x,s.lz-s.z):2.2,ol=Math.hypot(ux,uz);
@@ -1923,12 +2013,25 @@ function netRemote(e,dt){const p=e.g.position;if(e.immuneT>0)e.immuneT=Math.max(
    if(gx!==rawX)gvx=0;if(gz!==rawZ)gvz=0;
    let dr=b.r-a.r;dr=Math.atan2(Math.sin(dr),Math.cos(dr));gr=a.r+dr*u;gv=Math.hypot(gvx,gvz)
   }}
+  // P5: ý định lao/dash — tự mô phỏng từ điểm đầu + vận tốc theo giờ người gửi (cùng hệ rt với gói tin → không lệch pha).
+  let ig=false;const q=e.lgs;
+  if(q&&q.length){
+   while(q.length>1&&q[1].t0<=rt)q.shift();
+   const L=q[0];
+   if(L.t0<=rt){
+    const el=rt-L.t0;let end=el>=L.d;
+    if(!end&&L.m)for(let j=0;j<sn.length;j++){const s=sn[j];if(s.t>L.t0+.002&&s.t<=rt&&s.lx==null){end=true;break}} // lao kết thúc sớm (chạm địch)
+    if(end)q.shift();
+    else{gx=clamp(L.x+L.vx*el);gz=clamp(L.z+L.vz*el);gvx=L.vx;gvz=L.vz;gv=Math.hypot(gvx,gvz);ig=true;
+     if(L.m&&gv>.5)gr=Math.atan2(L.vx,L.vz)}}
+  }
+  e.ig=ig;
   while(sn.length>2&&sn[1].t<=rt)sn.shift();
   const dd=Math.hypot(gx-p.x,gz-p.z);e.gv=gv;e.dd=dd;
   if(dd>8){p.x=gx;p.z=gz;e.spd=0}
   else if(dd<.02&&gv<.05){p.x=gx;p.z=gz}
   else{ // đi sẵn theo vận tốc mục tiêu (hết trễ khi chạy đều) rồi mới kéo phần sai lệch còn lại
-   const fx=p.x+gvx*step,fz=p.z+gvz*step,k=1-Math.exp(-step*(dd>1.5?40:22));
+   const fx=p.x+gvx*step,fz=p.z+gvz*step,k=1-Math.exp(-step*(ig?60:dd>1.5?40:30));
    p.x=fx+(gx-fx)*k;p.z=fz+(gz-fz)*k}
   let d=gr-e.g.rotation.y;d=Math.atan2(Math.sin(d),Math.cos(d));e.g.rotation.y+=d*(1-Math.exp(-step*26));
  }
@@ -1937,6 +2040,8 @@ function netRemote(e,dt){const p=e.g.position;if(e.immuneT>0)e.immuneT=Math.max(
  // Vào chạy ngay khi dữ liệu mạng báo đang di chuyển (đoán trước, tránh trượt lúc bắt đầu);
  // về đứng khi đã gần tới đích hoặc gần như không còn nhúc nhích (tránh trượt lúc kết thúc).
  if((e.gv||0)>1.2)e.mv=1;else if(e.spd<.7||(e.dd||0)<.12)e.mv=0;
+ // Ulti của đối thủ: hết nhịp khựng (0,2s) thì tăng tốc để 75% animation còn lại kết thúc trong 0,1s — đúng như máy họ (ultStart).
+ if(e.ultW>0){e.ultW-=step;if(e.ultW<=0){e.ultW=0;const ua=e.acts.chieu2;if(e.cur==='chieu2'&&ua&&e.oneT>0){ua.setEffectiveTimeScale((1-ULT_ANIM_FRAC)*ua.getClip().duration/ULT_ANIM_END);e.oneT=ULT_ANIM_END}}}
  rLoco(e,step,e.mv===1);
  // Nhịp chân khớp tốc độ thực: 8.5 đơn vị/giây ứng với tốc độ phát 1 như máy người chơi.
  if(e.cur==='run'&&e.oneT<=0&&e.acts.run)e.acts.run.setEffectiveTimeScale(Math.max(.6,Math.min(1.4,e.spd/8.5)));
@@ -1945,10 +2050,10 @@ function netRemote(e,dt){const p=e.g.position;if(e.immuneT>0)e.immuneT=Math.max(
  const r=Math.max(0,shown/e.max);e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;e.bars.position.set(p.x,ENEMY_BAR_Y,p.z);e.bars.quaternion.copy(cam.quaternion);
  if(e.mx){e.mx.update(step);if(e.mdl){e.mdl.rotation.y=e.cur==="chieu1"?C1:0;
   // Chiêu 2: kéo mô hình lùi như máy người chơi, để đòn nhìn giống nhau ở cả hai phía.
-  e.pull=(e.cur==="chieu2"&&e.oneT>0)?Math.min(1.5,e.pull+step*7.5):0;e.mdl.position.z=-e.pull}}
+  e.pull=(e.cur==="chieu2"&&e.oneT>0)?Math.min(1.5,e.pull+step*7.5):0;e.mdl.position.z=-e.pull}rSwordPose(e)}
  // Hiển thị kĩ năng đối thủ màu đỏ
  e.bT=Math.max(0,(e.bT||0)-dt);
- if(e.ringP){e.ringP.material.opacity=alive?.2:0; e.ringE.material.opacity=0; e.ringBase.material.opacity=alive?.5:.15} updateRemoteSlash(e,dt);
+ if(e.ringP){e.ringP.material.opacity=alive?.2:0; e.ringE.material.opacity=0; e.ringBase.material.opacity=alive?.5:.15} updateRemoteSlash(e,dt);updateRemoteTrail(e);
 
 }
 function netMob(e,dt){const t=mobT[e.mid];
@@ -1959,6 +2064,37 @@ function netMob(e,dt){const t=mobT[e.mid];
 let lastP='',lastMk='',lastMs='',mobTs=0,me=null,ping=0,pingLbl=0,lastAc=0,lsX=0,lsZ=0,lsT=performance.now();
 let sendAcc=0,pingT=0,rtt=0,bestRtt=1e9;const _lp={x:1e9,z:0,vx:0,vz:0,r:0,a:'',c:-1,h:-1,L:0,lx:0,lz:0};
 const SEND_DT=1/30,SEND_DT_FAST=.025; // 30 gói/s thường, 40 gói/s khi lao
+// P1: vận tốc tức thời = độ dời giữa 2 frame / dt, làm mượt nhẹ (~12ms). Bù phần dịch do ack/teleport để không bị vọt.
+let _pX=null,_pZ=null,_adjX=0,_adjZ=0,_ivx=0,_ivz=0;
+function netVel(dt){
+ if(_pX===null){_pX=pos.x;_pZ=pos.z;_ivx=_ivz=0;return}
+ const d=Math.max(.004,dt);let dx=pos.x-_pX-_adjX,dz=pos.z-_pZ-_adjZ;_adjX=_adjZ=0;_pX=pos.x;_pZ=pos.z;
+ let vx=dx/d,vz=dz/d;if(Math.hypot(dx,dz)>3)vx=vz=0; // dịch chuyển tức thời (hồi sinh…)
+ const m=Math.hypot(vx,vz);if(m>40){vx*=40/m;vz*=40/m}
+ const a=1-Math.exp(-d/.012);_ivx+=(vx-_ivx)*a;_ivz+=(vz-_ivz)*a}
+// P5: gửi 1 lần "ý định" chuyển động (điểm đầu + vận tốc + thời lượng + giờ bắt đầu = v.t) cho cú lao (m:1) và dash (m:0).
+// Bên nhận tự mô phỏng đoạn đi, không phụ thuộc nhịp gói 'p'. Chỉ gửi lại khi hướng/tốc độ đổi đáng kể.
+const _ig={ref:null,on:false,vx:0,vz:0,tx:0,tz:0,end:0,lt:0};
+function netIntent(){
+ const nowS=performance.now()/1000,f2=v=>+v.toFixed(2);
+ if(pdead>0||selfStunT>0){_ig.on=false;_ig.ref=null;return}
+ if(lunge){
+  const L=lunge,tx=L.to.x,tz=L.to.z,mv=Math.hypot(tx-_ig.tx,tz-_ig.tz);
+  if(_ig.ref!==L||(mv>.6&&nowS-_ig.lt>.06)){ // lao Ulti bám mục tiêu: dời đích nhiều mới gửi lại
+   const d=Math.max(.03,(1-Math.min(1,L.t))*L.dur),vx=(tx-pos.x)/d,vz=(tz-pos.z)/d;
+   pushEv({k:'lg',m:1,x:f2(pos.x),z:f2(pos.z),vx:+vx.toFixed(1),vz:+vz.toFixed(1),d:+d.toFixed(3)});
+   _ig.ref=L;_ig.tx=tx;_ig.tz=tz;_ig.on=true;_ig.vx=vx;_ig.vz=vz;_ig.end=nowS+d;_ig.lt=nowS}
+  return}
+ _ig.ref=null;
+ if(dashT>0){
+  const vx=_ivx,vz=_ivz,sp=Math.hypot(vx,vz);
+  if(sp>6){
+   if(!_ig.on||Math.hypot(vx-_ig.vx,vz-_ig.vz)>4||dashT>_ig.end-nowS+.03){
+    pushEv({k:'lg',m:0,x:f2(pos.x),z:f2(pos.z),vx:+vx.toFixed(1),vz:+vz.toFixed(1),d:+dashT.toFixed(3)});
+    _ig.on=true;_ig.vx=vx;_ig.vz=vz;_ig.end=nowS+dashT;_ig.lt=nowS}
+  }else if(_ig.on){ // đang dash mà dừng bấm hướng → báo đứng
+   pushEv({k:'lg',m:0,x:f2(pos.x),z:f2(pos.z),vx:0,vz:0,d:.12});_ig.on=false;_ig.vx=_ig.vz=0}
+ }else _ig.on=false}
 // Đo RTT thật + hiệu chỉnh nhẹ đồng hồ (giới hạn ±2ms/lần để ts người gửi luôn tăng dần, không bị bỏ gói)
 function pingNow(){if(!online||pongCb)return;const p0=performance.now();
  const cb=s=>{if(pongCb===cb)pongCb=null;const r=performance.now()-p0,c1=Date.now();rtt=rtt?rtt*.7+r*.3:r;
@@ -1975,12 +2111,13 @@ function netTick(dt){
 // Gọi ở CUỐI loop: gửi trạng thái mới nhất ngay trong frame vừa tính xong (bớt ~1 frame trễ),
 // giữ phần dư thời gian để nhịp đều 30Hz (trước đây reset về 0 → thực tế hay thành 20Hz hoặc thấp hơn).
 function netSend(dt){
- if(!online)return;
+ if(!online){_pX=null;return}
+ netVel(dt);netIntent();
  sendAcc+=dt;lastMob+=dt;
  const gap=(lunge||dashT>0)?SEND_DT_FAST:SEND_DT;
  if(sendAcc>=gap-.0015||ac!==lastAc){
   const nowT=performance.now(),el=Math.max(.016,(nowT-lsT)/1000),dead=pdead>0,rq=(v,k)=>Math.round(v*k)/k,cl=(v,m)=>v>m?m:v<-m?-m:v;
-  const x=rq(pos.x,100),z=rq(pos.z,100),vx=dead?0:rq(cl((pos.x-lsX)/el,40),10),vz=dead?0:rq(cl((pos.z-lsZ)/el,40),10),r=rq(hero.rotation.y,100),a=cur||'idle',L=lunge?1:0,lx=L?rq(lunge.to.x,100):0,lz=L?rq(lunge.to.z,100):0;
+  const x=rq(pos.x,100),z=rq(pos.z,100),vx=dead?0:rq(cl(_ivx,40),10),vz=dead?0:rq(cl(_ivz,40),10),r=rq(hero.rotation.y,100),a=cur||'idle',L=lunge?1:0,lx=L?rq(lunge.to.x,100):0,lz=L?rq(lunge.to.z,100):0;
   if(x!==_lp.x||z!==_lp.z||vx!==_lp.vx||vz!==_lp.vz||r!==_lp.r||a!==_lp.a||ac!==_lp.c||hp!==_lp.h||L!==_lp.L||lx!==_lp.lx||lz!==_lp.lz){
    _lp.x=x;_lp.z=z;_lp.vx=vx;_lp.vz=vz;_lp.r=r;_lp.a=a;_lp.c=ac;_lp.h=hp;_lp.L=L;_lp.lx=lx;_lp.lz=lz;
    sendAcc=(sendAcc>=gap*1.5||ac!==lastAc)?0:sendAcc-gap;
@@ -1998,9 +2135,13 @@ function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
   // Bù trễ đạn: đẩy viên đạn tới vị trí nó đáng ra đã bay tới.
   const lag=Math.max(0,Math.min(.3,(netNow()-v.t)/1000)),adv=SHOT_SPEED*lag;
   m.position.set(v.x+v.dx*adv,1.2,v.z+v.dz*adv);scene.add(m);shots.push({m,d:new THREE.Vector3(v.dx,0,v.dz),s:adv,vis:1,owner:v.f})}
- else if(v.k==='d'&&v.to===myId&&pdead<=0){floatNum(hero.position.x,hero.position.z,v.d,0,2.8,true);hp=Math.max(0,hp-v.d);updHp();if(hp<=0){pdead=3;hero.visible=false;lunge=null;ultWind=null}}
- else if(v.k==='pi'){passiveImpact(v.sx,v.sy,v.sz,v.ex,v.ez,v.dx,v.dz)}
- else if(v.k==='b'){const r=remotes[v.f];if(r)r.bT=.35;burst(v.x,v.z,v.r,0xff3030,v.fl&&r?r:0,v.d,v.s)}
+ else if(v.k==='d'&&v.to===myId&&pdead<=0){floatNum(hero.position.x,hero.position.z,v.d,0,2.8,true);hp=Math.max(0,hp-v.d);updHp();atRemote(v.f,v.t,()=>{enemySlash({g:hero});spawnDamageImpact({g:hero,bag:0})}); // vệt chém + nháy trên người bị đánh
+  if(hp<=0){pdead=3;hero.visible=false;lunge=null;ultWind=null}}
+ else if(v.k==='pi'){atRemote(v.f,v.t,late=>{passiveImpact(v.sx,v.sy,v.sz,v.ex,v.ez,v.dx,v.dz);const f=passiveImpacts[passiveImpacts.length-1];if(f&&late>0)f.t=Math.min(f.d*.7,late)})}
+ else if(v.k==='b'){atRemote(v.f,v.t,late=>{const r=remotes[v.f];if(r)r.bT=Math.max(.05,.35-late);burst(v.x,v.z,v.r,0xff3030,v.fl&&r?r:0,v.d,v.s);const f=fx[fx.length-1];if(f&&late>0)f.t=Math.min(.7,late/f.d)})}
+ else if(v.k==='ua'){const r=remotes[v.f];if(r)r.ultAt=v.t/1000} // máy gửi báo: sắp tung Ulti (chiêu 2 animation kiểu khựng-lao)
+ else if(v.k==='sl'){if(v.to===myId){const lag=Math.max(0,Math.min(.3,(netNow()-v.t)/1000));slowPlayer();if(selfSlowT>0)selfSlowT=Math.max(.05,SLOW_TIME-lag)}}
+ else if(v.k==='ut'){atRemote(v.f,v.t,late=>{const me=v.to===myId;burst(me?pos.x:v.x,me?pos.z:v.z,2.2,0xffd52a,0,.25,.3);const f=fx[fx.length-1];if(f&&late>0)f.t=Math.min(.7,late/f.d);if(me){impactShake=.06;impactShakeTime=.2}})}
  else if(v.k==='f')mkFlower(v.x,v.z,1,true,v.sx,v.sz);
  else if(v.k==='fp'){ // đối thủ nhặt bông → xóa bông tương ứng trên máy mình
   for(let i=flowers.length-1;i>=0;i--){const f=flowers[i];
@@ -2009,6 +2150,9 @@ function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
  }
  else if(v.k==='im'){const r=remotes[v.f];if(r){const lag=Math.max(0,Math.min(.3,(netNow()-v.t)/1000));r.immuneT=Math.max(0,v.d-lag);if(r.immuneT>0)r.immMax=Math.max(r.immMax||0,r.immuneT)}}
  else if(v.k==='uc'){clearFlowers('remote')}
+ else if(v.k==='lg'){const r=remotes[v.f];
+  if(r&&[v.x,v.z,v.vx,v.vz,v.d,v.t].every(Number.isFinite)){const q=r.lgs||(r.lgs=[]);
+   q.push({t0:v.t/1000,x:v.x,z:v.z,vx:v.vx,vz:v.vz,d:Math.max(0,Math.min(1.5,v.d)),m:v.m?1:0});while(q.length>8)q.shift()}}
 
  else if(v.k==='fc'){clearFlowers('remote');
   // Người ném báo đã trúng: xóa viên đạn đang bay của họ (không để xuyên người); nếu trúng mình thì hiện va chạm trên người mình.
@@ -2049,7 +2193,7 @@ async function join(c,mk){
      sn.push({t:snapT,x:d.x,z:d.z,vx,vz,r:d.r,lx:d.lx,lz:d.lz,tp:!!last&&Math.hypot(d.x-last.x,d.z-last.z)>9});while(sn.length>12)sn.shift()}
     if(d.h<r.hp&&r.pend)r.pend=Math.max(0,r.pend-(r.hp-d.h)); // đối soát dự đoán sát thương
     r.hp=d.h;
-    if(d.c!==r.c)rAttack(r,d.a,d.c)};
+    if(d.c!==(r.cq===undefined?r.c:r.cq)){r.cq=d.c;const ca=d.a,cc=d.c;atRemote(id,d.ts,late=>rAttack(r,ca,cc,late,d.ts))}};
    room.onMessage('p',d=>{const id=d.id,nw=!(id in jl);jl[id]=d.j||0;proc(id,d);if(nw)calcHost()});
    room.onMessage('ack',d=>{
     if(!d||!Number.isSafeInteger(d.seq)||d.seq<=lastAckSeq||!Number.isFinite(d.x)||!Number.isFinite(d.z))return;
@@ -2059,11 +2203,11 @@ async function join(c,mk){
     if(!predicted)return;
     const dx=d.x-predicted.x,dz=d.z-predicted.z;
     if(Math.hypot(dx,dz)<.001)return;
-    pos.x+=dx;pos.z+=dz;correctionX-=dx;correctionZ-=dz;
+    pos.x+=dx;pos.z+=dz;_adjX+=dx;_adjZ+=dz;correctionX-=dx;correctionZ-=dz;
     if(lunge){lunge.from.x+=dx;lunge.from.z+=dz;lunge.to.x+=dx;lunge.to.z+=dz}
    });
    room.onMessage('leave',id=>{delete jl[id];const r=remotes[id];
-    if(r){scene.remove(r.g);scene.remove(r.bars);if(r.stunFx){scene.remove(r.stunFx);disposeObj(r.stunFx)}if(r.slashMesh){scene.remove(r.slashMesh);disposeObj(r.slashMesh)}const i=enemies.indexOf(r);if(i>=0)enemies.splice(i,1);delete remotes[id]}calcHost()});
+    if(r){scene.remove(r.g);scene.remove(r.bars);if(r.stunFx){scene.remove(r.stunFx);disposeObj(r.stunFx)}if(r.slashMesh){scene.remove(r.slashMesh);disposeObj(r.slashMesh)}if(r.dTr){scene.remove(r.dTr.mesh);disposeObj(r.dTr.mesh);for(const f of r.dTr.fibers){scene.remove(f.mesh);disposeObj(f.mesh)}}const i=enemies.indexOf(r);if(i>=0)enemies.splice(i,1);delete remotes[id]}calcHost()});
    room.onMessage('m',v=>{if(isHost)return;if(v){
     // Đối soát dự đoán: máu thật đã giảm thì bớt phần dự đoán tương ứng để không trừ đôi.
     for(let i=0;i<v.length;i++){const m=mobs[i],o=mobT[i];if(m&&m.pend&&o&&v[i]&&o[2]>v[i][2])m.pend=Math.max(0,m.pend-(o[2]-v[i][2]))}
@@ -2093,7 +2237,7 @@ let zata=false,zSwapT=0,zN=0,zNT=0,zSt=null,zDash=null,zFly=null,zKz=0,zBtnC='';
 const zSave={f:null,z:null},zNeed=[],zBalls=[],zTorn=[],zFx=[],zTip=$('tip').innerHTML,zFlo={p:'Nội tại',q:'Chiêu 1',e:'Chiêu 2',u:'Ulti'},zZat={p:'Đánh thường',q:'Chiêu 1',e:'Chiêu 2',u:'Chiêu 3'};
 const zRingG=new THREE.RingGeometry(.88,1,48);zRingG.rotateX(-Math.PI/2);
 const zNeedleG=(()=>{const g=new THREE.ConeGeometry(.1,1.4,6);g.rotateX(Math.PI/2);return g})(),_zv=new THREE.Vector3();
-const zClr=()=>{qAimActive=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false};
+const zClr=()=>{qAimActive=false;qAimManual=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false};
 const zOk=()=>!(selfStunT>0||pdead>0||netLock||online||zFly);
 const zEn=()=>enemies.filter(e=>!e.dead&&e.g&&e.g.visible);
 const zRad=e=>e.bag?.7:.6;
