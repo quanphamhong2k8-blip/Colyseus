@@ -45,11 +45,15 @@ canvas{display:block}
 #moveStick:before{content:"";position:absolute;width:42%;height:42%;border-radius:50%;border:1px solid rgba(220,235,255,.16);pointer-events:none}
 #moveKnob{transition:transform .055s cubic-bezier(.2,.8,.2,1);will-change:transform;position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;border:2px solid rgba(235,242,255,.78);background:linear-gradient(145deg,rgba(150,180,235,.85),rgba(58,78,125,.9));box-shadow:0 3px 12px rgba(0,0,0,.4),inset 0 1px 5px rgba(255,255,255,.25);pointer-events:none;transform:translate(0,0)}
 @media(max-width:700px){#moveStick{width:124px;height:124px;bottom:max(24px,calc(env(safe-area-inset-bottom) + 14px))}#moveKnob{transition:transform .055s cubic-bezier(.2,.8,.2,1);will-change:transform;width:46px;height:46px;margin:-23px 0 0 -23px}#hud{width:124px;height:124px;right:max(82px,calc(env(safe-area-inset-right) + 60px));bottom:max(70px,calc(env(safe-area-inset-bottom) + 58px))}.sk{--s:70px}.sk b{font-size:12px}.sk small{font-size:10px}}
-
-
+#countdown{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,8,20,.72);z-index:20;pointer-events:auto;flex-direction:column;gap:12px}
+#countdown .num{font:900 120px system-ui,sans-serif;color:#ffe66d;text-shadow:0 0 28px rgba(255,200,40,.9),0 0 60px rgba(255,120,40,.5);line-height:1}
+#countdown .sub{font:700 22px system-ui;color:#e8ecff;opacity:.9}
+#countdown.wait .num{font-size:42px;color:#8ed7ff}
 </style></head><body>
 <div id="net"><div>Số phòng<br><input id="rc" type="tel" maxlength="6" placeholder="1234"><br><button id="rn">Tạo phòng</button><button id="rj">Vào phòng</button><button id="ro">Chơi offline</button></div></div>
+<div id="countdown"><div class="num">3</div><div class="sub">Chuẩn bị chiến đấu</div></div>
 <div id="hp"><i id="hpi"></i></div><div id="rs"></div>
+
 <div id="dbg"><button type="button" id="btnGod">Bot bất tử: Tắt</button><button type="button" id="btnStill">Bot đứng yên: Tắt</button><button type="button" id="btnCd">Hồi chiêu: Bật</button></div>
 <button id="toggleHud" type="button" aria-pressed="false">Ẩn nút chiêu</button>
 <button id="editHud" type="button" aria-pressed="false">Chỉnh vị trí nút</button>
@@ -70,8 +74,9 @@ canvas{display:block}
 <script type="module" src="/src/client/solo-sdk.ts"></script>
 <script>
 (()=>{
-const R_P=7.623,R_E=5.625139*1.15,SPD_K=.9,R_Q=9.96072,SHOT_SPEED=33.6,FD=R_P*0.85,CD_P=5,CD_Q=5.2,CD_E=1.5,CD_E_S=.5,E_WIN=5,ARENA=110; // chiêu 2 tích trữ 3 lần: lần 1,2 hồi CD_E_S (0,5s); lần 3 hồi CD_E (1,5s); E_WIN = thời gian tích trữ mỗi lần (5s) // Tầm ném hoa giảm còn 70% // FD: vòng 3 bông hoa giảm 15%
+const R_P=7.623,R_E=5.625139*1.15,SPD_K=.9,R_Q=9.96072,SHOT_SPEED=33.6,FD=R_P*0.85,CD_P=5,CD_Q=5.2,CD_E=1.5,CD_E_S=.5,E_WIN=5,ARENA=110,FIRE_R=40; // chiêu 2 tích trữ 3 lần: lần 1,2 hồi CD_E_S (0,5s); lần 3 hồi CD_E (1,5s); E_WIN = thời gian tích trữ mỗi lần (5s) // Tầm ném hoa giảm còn 70% // FD: vòng 3 bông hoa giảm 15% // FIRE_R: vòng tròn lửa bao trọn bao cát
 const $=id=>document.getElementById(id),L=c=>new THREE.MeshLambertMaterial({color:c});
+
 // Nút ẩn/hiện cụm chiêu trên màn hình; phím và chuột vẫn hoạt động bình thường.
 const hudEl=document.getElementById('hud'),toggleHudBtn=document.getElementById('toggleHud');
 toggleHudBtn.addEventListener('click',()=>{const hidden=hudEl.classList.toggle('hidden');toggleHudBtn.textContent=hidden?'Hiện nút chiêu':'Ẩn nút chiêu';toggleHudBtn.setAttribute('aria-pressed',String(hidden))});
@@ -181,15 +186,59 @@ function makeSword(col){
 }
 
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),clamp=v=>Math.max(-ARENA,Math.min(ARENA,v));
+function clampPos(x,z){const d=Math.hypot(x,z);if(d>FIRE_R){const k=FIRE_R/d;return [x*k,z*k];}return [x,z];}
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1020);scene.fog=new THREE.Fog(0x0b1020,45,130);
 const cam=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,.1,300);
 const ren=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});let PR_MAX=Math.min(devicePixelRatio||1,2),PR=PR_MAX;ren.setPixelRatio(PR);ren.setSize(innerWidth,innerHeight);document.body.appendChild(ren.domElement);
 scene.add(new THREE.HemisphereLight(0xbcd0ff,0x223322,.9));
 const sun=new THREE.DirectionalLight(0xffffff,.8);sun.position.set(10,30,10);scene.add(sun);
-// Map
-const ground=new THREE.Mesh(new THREE.PlaneGeometry(260,260),L(0x1d3a2a));ground.rotation.x=-Math.PI/2;scene.add(ground);
-const grid=new THREE.GridHelper(260,65,0x4a7a5a,0x2c5a3c);grid.position.y=.02;scene.add(grid);
+// Map: nền đen ngoài vòng tròn lửa, xanh bên trong, vòng lửa bao bao cát
+const groundBlack=new THREE.Mesh(new THREE.PlaneGeometry(260,260),new THREE.MeshBasicMaterial({color:0x050508}));groundBlack.rotation.x=-Math.PI/2;groundBlack.position.y=-.01;scene.add(groundBlack);
+const ground=new THREE.Mesh(new THREE.CircleGeometry(FIRE_R,96),L(0x1d3a2a));ground.rotation.x=-Math.PI/2;scene.add(ground);
+// Vòng tròn lửa
+const fireRingGeo=new THREE.RingGeometry(FIRE_R-.55,FIRE_R+.85,96);
+
+const fireRingMat=new THREE.MeshBasicMaterial({color:0xff5500,transparent:true,opacity:.85,side:THREE.DoubleSide,depthWrite:false});
+const fireRing=new THREE.Mesh(fireRingGeo,fireRingMat);fireRing.rotation.x=-Math.PI/2;fireRing.position.y=.08;scene.add(fireRing);
+const fireGlow=new THREE.Mesh(new THREE.RingGeometry(FIRE_R-.2,FIRE_R+1.6,96),new THREE.MeshBasicMaterial({color:0xff2200,transparent:true,opacity:.28,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}));fireGlow.rotation.x=-Math.PI/2;fireGlow.position.y=.09;scene.add(fireGlow);
+// Lửa bốc lên quanh vành: nhiều mảnh lửa mỏng đứng thẳng, bay lên + mờ dần rồi tái sinh
+const FIRE_PART_N=72,fireParts=[];
+(function initFireParts(){
+ const cols=[0xff3a00,0xff6a00,0xffaa22,0xffee66,0xff2200];
+ const geo=new THREE.PlaneGeometry(.22,1.1);geo.translate(0,.55,0); // gốc ở chân, kéo dài lên
+ for(let i=0;i<FIRE_PART_N;i++){
+  const mat=new THREE.MeshBasicMaterial({color:cols[i%cols.length],transparent:true,opacity:.9,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
+  const m=new THREE.Mesh(geo,mat);m.frustumCulled=false;scene.add(m);
+  const a=(i/FIRE_PART_N)*Math.PI*2+(Math.random()-.5)*.12;
+  const r=FIRE_R+(Math.random()-.5)*.9;
+  fireParts.push({m,a,r,y:Math.random()*2.2,vy:.9+Math.random()*1.8,life:.4+Math.random()*.9,t:Math.random(),w:.55+Math.random()*.9,h:.7+Math.random()*1.3,spin:(Math.random()-.5)*2.5});
+ }
+})();
+function updateFireParts(dt,T){
+ for(const p of fireParts){
+  p.t+=dt;
+  const k=p.t/p.life;
+  if(k>=1){
+   p.t=0;p.life=.45+Math.random()*1.05;p.y=0;p.vy=.85+Math.random()*2.1;
+   p.a+=(Math.random()-.5)*.2;p.r=FIRE_R+(Math.random()-.5)*1.1;
+   p.w=.5+Math.random()*1;p.h=.65+Math.random()*1.45;p.spin=(Math.random()-.5)*3;
+  }
+  const u=p.t/p.life;
+  // bay lên, hơi xoay, thu nhỏ dần ở đỉnh
+  p.y+=p.vy*dt*(1.15-u*.55);
+  const fade=u<.12?u/.12:u>.55?Math.max(0,1-(u-.55)/.45):1;
+  const scH=p.h*(.55+u*.9)*(1-u*.25);
+  const scW=p.w*(1.05-u*.35);
+  p.m.position.set(Math.cos(p.a)*p.r,p.y*.95+.08,Math.sin(p.a)*p.r);
+  p.m.scale.set(scW,scH,1);
+  p.m.rotation.y=p.a+Math.PI/2+p.spin*u; // luôn quay mặt ra ngoài + xoay nhẹ
+  p.m.rotation.z=(Math.sin(T*7+p.a*3)*.12)+(u-.5)*.15;
+  p.m.material.opacity=.15+.85*fade*(1-u*.35);
+ }
+}
+
 // Đã bỏ toàn bộ cây khỏi địa hình theo yêu cầu.
+
 // Hero
 const hero=new THREE.Group(),pos=new THREE.Vector3();
 const body=new THREE.Mesh(new THREE.CylinderGeometry(.5,.6,1.4,12),L(0x3a7bff));body.position.y=.7;
@@ -565,6 +614,30 @@ function updateBigSlashes(dt){
 // Enemies
 const HPMAX=20000,ATK=450,DMG_P=530,DMG_Q=700,DMG_E=400,DMG_E_PCT=.02,HEAL_PCT=.02,HEAL_ATK=.005,HEAL_ATK_PER=100,ULT_HEAL_MUL=2,JIT=50; // HEAL_ATK_PER: cứ mỗi 100 công vật lý hồi thêm HEAL_ATK (0,5%); ULT_HEAL_MUL: hệ số hồi máu khi đang miễn khống (chiêu 3); JIT: dame và lượng hồi máu dao động ±JIT
 const jit=()=>(Math.random()*2-1)*JIT;let online=false,isHost=true,ac=0,pdead=0,hp=HPMAX,gltfD=null,netLock=true;
+let gameStarted=false,countdownT=0,countdownVal=0,waitingOpponent=false; // online: đợi đối thủ rồi đếm 3-2-1
+const cdEl=$('countdown'),cdNum=cdEl.querySelector('.num'),cdSub=cdEl.querySelector('.sub');
+function randomArenaPos(){const a=Math.random()*Math.PI*2,r=Math.random()*(FIRE_R-6);return [Math.cos(a)*r,Math.sin(a)*r]}
+function startCountdown(){
+ if(gameStarted||countdownT>0)return;
+ waitingOpponent=false;cdEl.classList.remove('wait');
+ const [rx,rz]=randomArenaPos();pos.set(rx,0,rz);hero.position.copy(pos);
+ countdownVal=3;countdownT=3.2;netLock=true;
+ cdNum.textContent='3';cdSub.textContent='Chuẩn bị chiến đấu';cdEl.style.display='flex';
+ // báo đối thủ (nếu host) hoặc cả hai tự đếm khi thấy nhau
+ if(online)pushEv({k:'cd',v:3});
+}
+function updateCountdown(dt){
+ if(countdownT<=0)return;
+ countdownT-=dt;
+ const left=Math.ceil(countdownT);
+ if(left!==countdownVal&&left>=1){countdownVal=left;cdNum.textContent=String(left)}
+ if(countdownT<=0){
+  countdownT=0;gameStarted=true;netLock=false;
+  cdNum.textContent='CHIẾN!';cdSub.textContent='';
+  setTimeout(()=>{cdEl.style.display='none'},450);
+ }
+}
+
 // ===== VẠCH RÚT MÁU (trắng) nằm sau vạch máu chính: giữ ~0,2s rồi tụt dần; hồi máu thì bám theo ngay =====
 const trails=[];
 function addTrail(bars,fg){const tr=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0xffffff}));tr.position.z=.005;tr.visible=false;bars.add(tr);trails.push({bars,fg,tr,r:1,last:1,hold:0})}
@@ -577,13 +650,10 @@ const enemies=[];
 // Độ cao (trục Y) hiển thị trên đầu bot / đối thủ: thanh máu cao hơn vòng xoắn choáng, cả hai cao hơn đầu.
 const ENEMY_BAR_Y=5.2,ENEMY_STUN_Y=5.8; // vòng xoắn choáng nằm trên thanh máu
 function respawn(e){let x,z;do{x=(Math.random()-.5)*160;z=(Math.random()-.5)*160}while(Math.hypot(x-pos.x,z-pos.z)<12);e.g.position.set(x,0,z);e.hp=e.max;e.dead=0;e.g.visible=true}
-for(let i=0;i<14;i++){const g=new THREE.Group(),m=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,1.8,10),L(0xd04040));m.position.y=.9;
- const bars=new THREE.Group();bars.position.y=ENEMY_BAR_Y;bars.scale.setScalar(1.8);
- const bg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x330000})),fg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x44ff44}));fg.position.z=.01;
- bars.add(bg,fg);addTrail(bars,fg);g.add(m,bars);scene.add(g);
- m.scale.setScalar(1.44);m.position.y=1.296;bars.position.y=ENEMY_BAR_Y;bars.scale.setScalar(1.8);const imBg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.07),new THREE.MeshBasicMaterial({color:0x050505})),imFg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.07),new THREE.MeshBasicMaterial({color:0xffc400}));imBg.position.y=imFg.position.y=-.135;imFg.position.z=.01;imFg.visible=false;bars.add(imBg,imFg);const e={g,m,fg,bars,imFg,immuneT:0,immMax:3,hp:150,max:150,dead:0,flash:0,hitT:0,vx:0,vz:0,tm:0,mid:i};respawn(e);enemies.push(e)}
-// Bao cát: đứng yên, không mất máu
+// Đã xóa toàn bộ địch trụ đỏ đơn giản (14 enemy cylinder). Chỉ còn bao cát + bot/đối thủ.
+// Bao cát: đứng yên, không mất máu (nằm trong vòng tròn lửa FIRE_R=40)
 for(const [x,z] of [[0,-18],[-18,-18],[18,-18],[-30,0],[30,0],[0,26]]){const g=new THREE.Group(),m=new THREE.Mesh(new THREE.CylinderGeometry(.7,.7,2,12),new THREE.MeshLambertMaterial({color:0xc8a064})),band=new THREE.Mesh(new THREE.CylinderGeometry(.72,.72,.25,12),L(0x6b4a2a));m.scale.setScalar(1.44);band.scale.setScalar(1.44);m.position.y=1.44;band.position.y=2.016;g.add(m,band);g.position.set(x,0,z);scene.add(g);enemies.push({g,m,bag:1,dead:0,flash:0,hitT:0,hp:1,max:1})}
+
 // Phản hồi trúng đòn rõ và có lực: lóe trắng, giật mô hình, tia và hạt va chạm.
 const damageImpacts=[];
 // Số dame (đỏ) và số hồi máu (xanh lá) bay lên trên đầu nhân vật
@@ -1318,7 +1388,11 @@ function adaptRes(d){
 const clock=new THREE.Clock();
 let correctionX=0,correctionZ=0;
 function loop(){requestAnimationFrame(loop);const rawDt=clock.getDelta(),dt=Math.min(rawDt,.05),T=clock.elapsedTime;_frameId++;adaptRes(rawDt);updTrails(dt);
+ updateCountdown(dt);if(fireRingMat){fireRingMat.opacity=.72+.18*Math.sin(T*5);fireGlow.material.opacity=.22+.12*Math.sin(T*3.5)}
+ updateFireParts(dt,T);
  netTick(dt);ray.setFromCamera(mn,cam);ray.ray.intersectPlane(plane,mw);
+
+
  passive=Math.max(0,passive-dt);cd1=Math.max(0,cd1-dt);cd2=Math.max(0,cd2-dt);if(e3>0){e3w-=dt;if(e3w<=0){e3=0;cd2=cd2Max=CD_E}}cdU=Math.max(0,cdU-dt);immuneT=Math.max(0,immuneT-dt);updateImmunePalette(immuneT>0);selfSlowT=immuneT>0?0:Math.max(0,selfSlowT-dt);dashT=Math.max(0,dashT-dt);skillLock=Math.max(0,skillLock-dt);
  if(cdOff){passive=0;cd1=0;cd2=0;cdU=0}
  if(selfStunT>0){selfStunT=Math.max(0,selfStunT-dt);pos.x=selfStunX;pos.z=selfStunZ;selfStunFx.position.set(pos.x,ENEMY_STUN_Y+Math.sin(T*9)*.06,pos.z);selfStunFx.rotation.y=T*2.5;selfStunFx.visible=true;if(selfStunT<=0)selfStunFx.visible=false;lunge=null;dashT=0;stickX=stickY=stickTX=stickTY=0;keys.w=keys.a=keys.s=keys.d=0;keys.q=keys.shift=keys.p=keys.e=keys.space=0;qAimActive=false;qAimLock=null;qAimTarget=null;qAimHoverTarget=null;qAimHoverSelf=false;qAimArrow.visible=qAimCenterLine.visible=qAimRing.visible=qAimDot.visible=false;passive= Math.max(passive,0);if(selfStunT<=0){keys.q=held.q;keys.shift=held.shift;keys.space=held.space}}
@@ -1338,9 +1412,11 @@ function loop(){requestAnimationFrame(loop);const rawDt=clock.getDelta(),dt=Math
  }
  if(ultWind){ultWind.t-=dt;hero.rotation.y=ultWind.ry;
   // Lùi ra sau (ngược hướng lao) theo kiểu giảm tốc để tạo cảm giác lấy đà.
-  {const k=Math.min(1,Math.max(0,1-ultWind.t/ULT_WINDUP)),e=1-(1-k)*(1-k);pos.x=clamp(ultWind.from.x-ultWind.dir.x*ULT_BACK*e);pos.z=clamp(ultWind.from.z-ultWind.dir.z*ULT_BACK*e)}
+  {const k=Math.min(1,Math.max(0,1-ultWind.t/ULT_WINDUP)),e=1-(1-k)*(1-k);const ux=ultWind.from.x-ultWind.dir.x*ULT_BACK*e,uz=ultWind.from.z-ultWind.dir.z*ULT_BACK*e;[pos.x,pos.z]=clampPos(ux,uz)}
   if(ultWind.t<=0){const w=ultWind;ultWind=null;ultStart(w)}}
- const mx=(pdead>0||selfStunT>0||ultWind)?0:((keys.d?1:0)-(keys.a?1:0)+stickX),mz=(pdead>0||selfStunT>0||ultWind)?0:((keys.s?1:0)-(keys.w?1:0)+stickY),ml=Math.hypot(mx,mz);
+
+ const mx=(pdead>0||selfStunT>0||ultWind||netLock||countdownT>0||!gameStarted&&online)?0:((keys.d?1:0)-(keys.a?1:0)+stickX),mz=(pdead>0||selfStunT>0||ultWind||netLock||countdownT>0||!gameStarted&&online)?0:((keys.s?1:0)-(keys.w?1:0)+stickY),ml=Math.hypot(mx,mz);
+
  if(selfStunT>0){pos.x=selfStunX;pos.z=selfStunZ;}
  if(lunge&&lunge.ult){ultLungeStep(dt)}
  else if(lunge){lunge.t+=dt/lunge.dur; // Đâm nội tại không bị ảnh hưởng bởi hệ số làm chậm của lướt
@@ -1367,8 +1443,9 @@ function loop(){requestAnimationFrame(loop);const rawDt=clock.getDelta(),dt=Math
   impactShake=.08,impactShakeTime=.2;
   faceY=hero.rotation.y;faceT=.4;dashT=Math.max(dashT,.28); // đâm nội tại không cộng vạch; chỉ lướt chiêu 3 trúng mục tiêu/chiêu mới cộng
   lunge=null}}
- else{if(ml){const sp=(dashT>0?33.033*SPD_K:9.8175)*(selfSlowT>0?(dashT>0?SLOW_DASH:SLOW_FACTOR):1);pos.x=clamp(pos.x+mx/ml*sp*dt);pos.z=clamp(pos.z+mz/ml*sp*dt)}
+ else{if(ml){const sp=(dashT>0?33.033*SPD_K:9.8175)*(selfSlowT>0?(dashT>0?SLOW_DASH:SLOW_FACTOR):1);const nx=pos.x+mx/ml*sp*dt,nz=pos.z+mz/ml*sp*dt;[pos.x,pos.z]=clampPos(nx,nz)}
   if(ultWind){hero.rotation.y=ultWind.ry}
+
   else if(cur==='chieu2'){hero.rotation.y=Math.atan2(mw.x-pos.x,mw.z-pos.z)}
   else if(faceET>0&&faceE&&!faceE.dead){faceET-=dt;hero.rotation.y=Math.atan2(faceE.g.position.x-pos.x,faceE.g.position.z-pos.z)}
   else{faceET=0;if(faceT>0){faceT-=dt;hero.rotation.y=faceY}else if(ml>.08){const targetY=Math.atan2(mx,mz);let delta=Math.atan2(Math.sin(targetY-hero.rotation.y),Math.cos(targetY-hero.rotation.y));const turnSmooth=1-Math.exp(-dt*7.5);hero.rotation.y+=delta*turnSmooth}}}
@@ -2160,7 +2237,11 @@ function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
    if(v.to===myId){s.m.position.x=pos.x;s.m.position.z=pos.z}
    scene.remove(s.m);if(s.m.geometry)s.m.geometry.dispose();if(s.m.material)s.m.material.dispose();shots.splice(i,1);gone++}
   if(v.to===myId&&pdead<=0){stunPlayer();}if(gone&&v.to===myId&&pdead<=0)spawnDamageImpact({g:hero,bag:0})} // đối thủ trúng địch tạo 3 bông mới → xóa bông cũ
+ else if(v.k==='cd'){ // đối thủ bắt đầu đếm ngược → đồng bộ đếm 3-2-1
+  if(!gameStarted&&countdownT<=0)startCountdown();
+ }
  else if(v.k==='m'&&isHost){const e=mobs[v.i];if(e&&!e.dead)hit(e,v.d,1)}}
+
 async function join(c,mk){
  if(!window.Colyseus?.Client){alert('Không tải được Colyseus');return}
  code=c;$('rj').disabled=$('rn').disabled=$('ro').disabled=true;
@@ -2175,8 +2256,12 @@ async function join(c,mk){
    myId=room.sessionId;const jl={};
    const calcHost=()=>{let best=null,bj=0;for(const id in jl){const j=jl[id];if(best===null||j<bj||(j===bj&&id<best)){best=id;bj=j}}isHost=best===null||best===myId;updLabel()};
    const proc=(id,d)=>{if(!d||id===myId)return;let r=remotes[id];
-    if(!r){r=remotes[id]=mkRemote(id);enemies.push(r);r.g.position.set(d.x,0,d.z);r.g.rotation.y=d.r;r.c=d.c} // vào phòng: không phát lại chiêu cũ
+    if(!r){r=remotes[id]=mkRemote(id);enemies.push(r);r.g.position.set(d.x,0,d.z);r.g.rotation.y=d.r;r.c=d.c; // vào phòng: không phát lại chiêu cũ
+     // Đối thủ vào → bắt đầu đếm 3-2-1 (chỉ khi chưa bắt đầu)
+     if(waitingOpponent&&!gameStarted&&countdownT<=0)startCountdown();
+    }
     const sNow=netNow(),lat=d.ts?Math.max(0,Math.min(.35,(sNow-d.ts)/1000)):0;
+
     if(d.ts)ping=ping?ping*.85+lat*150:lat*1000;
     const vx=Math.max(-40,Math.min(40,d.vx||0)),vz=Math.max(-40,Math.min(40,d.vz||0));
     // Lưu gói theo mốc thời gian của người gửi; gói đến muộn/sai thứ tự bị bỏ để không giật lùi.
@@ -2220,9 +2305,14 @@ async function join(c,mk){
    myJ=tJoin=netNow();jl[myId]=myJ;
    const o={x:+pos.x.toFixed(1),z:+pos.z.toFixed(1),r:0,a:'idle',c:0,h:hp,j:myJ};lastP=JSON.stringify(o);o.ts=netNow();
    ns('p',o);ns('ready',1); // báo server gửi trạng thái người chơi/quái hiện có
-   mobs=enemies.filter(e=>e.mid!=null);online=true;netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();calcHost();
+   mobs=enemies.filter(e=>e.mid!=null);online=true;netLock=true;gameStarted=false;waitingOpponent=true;
+   $('net').style.display='none';$('hp').style.display='block';updHp();calcHost();
+
+   // Hiện chờ đối thủ
+   cdEl.classList.add('wait');cdNum.textContent='Đang chờ đối thủ...';cdSub.textContent='Phòng '+code;cdEl.style.display='flex';
  }catch(e){alert('Lỗi Colyseus: '+(e&&e.message||e));$('rj').disabled=$('rn').disabled=$('ro').disabled=false;$('dbg').style.display='flex';room=null}}
-$('ro').onclick=()=>{$('dbg').style.display='flex';$('rn').disabled=$('rj').disabled=false;netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();spawnBot()};
+$('ro').onclick=()=>{$('dbg').style.display='flex';$('rn').disabled=$('rj').disabled=false;netLock=false;gameStarted=true;waitingOpponent=false;$('net').style.display='none';$('hp').style.display='block';updHp();spawnBot()};
+
 $('rn').onclick=()=>{const c=String(1000+Math.floor(Math.random()*9000));$('rc').value=c;join(c,true)};
 $('rj').onclick=()=>{const c=$('rc').value.replace(/\D/g,'');if(!c){$('rc').focus();return}join(c)};
 $('rc').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter')$('rj').click()});
@@ -2351,7 +2441,8 @@ function zUpd(dt){
   zArrow1.visible=zRing1.visible=sh}
  if(zata&&aimMode==='u')uAimArrow.visible=uAimCenterLine.visible=qAimRing.visible=qAimDot.visible=false;
  // Lướt
- if(zDash){const D=zDash;D.t-=dt;D.k-=dt;pos.x=clamp(pos.x+D.d.x*45*dt);pos.z=clamp(pos.z+D.d.z*45*dt);hero.position.x=pos.x;hero.position.z=pos.z;hero.rotation.y=Math.atan2(D.d.x,D.d.z);
+ if(zDash){const D=zDash;D.t-=dt;D.k-=dt;const zx=pos.x+D.d.x*45*dt,zz=pos.z+D.d.z*45*dt;[pos.x,pos.z]=clampPos(zx,zz);hero.position.x=pos.x;hero.position.z=pos.z;hero.rotation.y=Math.atan2(D.d.x,D.d.z);
+
   if(D.k<=0){D.k=.04;zRing(pos.x,pos.z,1.6,ZW,.3)}
   if(!D.e)for(const e of zEn())if(Math.hypot(e.g.position.x-pos.x,e.g.position.z-pos.z)<2+zRad(e)){D.e=true;hit(e,1000);zSt.ch++;addZataDashCharge();zRing(pos.x,pos.z,4,0xffffff,.4);impactShake=Math.max(impactShake,.5),impactShakeTime=.2;break}
   // Lướt xuyên qua chiêu do Zata tạo ra (chiêu 1 hoặc chiêu 2) cũng được hoàn lại một lượt lướt; tính là lướt trúng để không bị kết thúc trạng thái do hụt địch.
