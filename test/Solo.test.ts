@@ -33,17 +33,19 @@ describe("Solo relay room", () => {
 
     const player3 = await colyseus.connectTo(room);
     player3.onMessage("leave", () => {});
-    const initialUpdate = new Promise<{ id: string; x: number; y: number }>((resolve) => {
+    const initialUpdate = new Promise<{ id: string; x: number; y: number; ts?: number }>((resolve) => {
       player3.onMessage("p", resolve);
     });
     player3.send("ready");
     await room.waitForNextMessage();
 
-    assert.deepStrictEqual(await initialUpdate, {
+    const initial = await initialUpdate;
+    assert.deepStrictEqual({ id: initial.id, x: initial.x, y: initial.y }, {
       id: player1.sessionId,
       x: 120,
       y: 240,
     });
+    assert.ok(Number.isFinite(initial.ts));
   });
 
   it("acknowledges sequenced movement snapshots to their sender", async () => {

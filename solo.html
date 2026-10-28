@@ -1472,7 +1472,7 @@ function loop(){requestAnimationFrame(loop);const rawDt=clock.getDelta(),dt=Math
  const shake=impactShake>0?impactShake*3.2:0;
  cam.position.set(hero.position.x+(Math.random()-.5)*shake,22*zm+(Math.random()-.5)*shake,hero.position.z+15*zm+(Math.random()-.5)*shake); // Camera thấp hơn nhẹ
  cam.lookAt(hero.position.x,0,hero.position.z);
- pp.copy(pos);updHeadHud(T);ren.render(scene,cam)}
+ pp.copy(pos);updHeadHud(T);ren.render(scene,cam);netSend(dt)}
 
 // ===== BOT OFFLINE =====
 // ⚠️ QUAN TRỌNG – ĐỒNG BỘ BOT ↔ ĐỐI THỦ (REMOTE):
@@ -1821,21 +1821,23 @@ function updateBot(dt){
 const CS_URL=`${location.protocol==='https:'?'wss':'ws'}://${location.host}`,CS_ROOM='Solo';
 let db=null,base='',code='',myId=Math.random().toString(36).slice(2,8),myJ=0,offs=0,tJoin=0,remotes={},mobs=[],mobT=[],lastSend=0,lastMob=0,room=null,pongCb=null,moveSeq=0,lastAckSeq=0;
 const predictionHistory=new Map();
+let clockOffset=0,clockReady=false;
+function netNow(){return clockReady?performance.now()+clockOffset:Date.now()+offs}
 function ns(t,o){try{if(room)room.send(t,o)}catch(e){}}
-function pushEv(o){o.f=myId;o.t=Date.now()+offs;ns('e',o)}
-// Đồng bộ đồng hồ với server (lấy mẫu có RTT nhỏ nhất) → Date.now()+offs = giờ server
+function pushEv(o){o.f=myId;o.t=netNow();ns('e',o)}
+// Đồng bộ đồng hồ với server (lấy mẫu có RTT nhỏ nhất).
 async function syncClock(){let best=null;
  for(let i=0;i<5;i++){
   const r=await new Promise(res=>{const c0=Date.now(),to=setTimeout(()=>{pongCb=null;res(null)},600);
    pongCb=s=>{clearTimeout(to);pongCb=null;const c1=Date.now();res({rtt:c1-c0,off:s+(c1-c0)/2-c1})};ns('ping',1)});
-  if(!r)break;if(!best||r.rtt<best.rtt)best=r;await new Promise(f=>setTimeout(f,80))}
- if(best)offs=best.off}
+  if(!r)break;if(!best||r.rtt<best.rtt)best=r;await new Promise(f=>setTimeout(f,40))}
+ if(best){offs=best.off;bestRtt=best.rtt;rtt=best.rtt;clockOffset=Date.now()+offs-performance.now();clockReady=true}}
 function netFx(o){if(online)pushEv(o)}
 function netDmgM(e,d){if(online)pushEv({k:'m',i:e.mid,d})}
 function netDmgP(e,d){if(online)pushEv({k:'d',to:e.id,d})}
 function netShot(d){if(online)pushEv({k:'s',x:+pos.x.toFixed(2),z:+pos.z.toFixed(2),dx:+d.x.toFixed(3),dz:+d.z.toFixed(3)})}
 function updHp(){$('hpi').style.width=(hp/HPMAX*100)+'%'}
-function updLabel(){$('rs').textContent='Phòng '+code+' · '+(Object.keys(remotes).length+1)+' người'+(isHost?' · chủ phòng':'')+(ping?' · ~'+Math.round(ping)+'ms':'')}
+function updLabel(){$('rs').textContent='Phòng '+code+' · '+(Object.keys(remotes).length+1)+' người'+(isHost?' · chủ phòng':'')+(rtt?' · ping '+Math.round(rtt)+'ms':(ping?' · ~'+Math.round(ping)+'ms':''))}
 // ⚠️ Đồng bộ với BOT OFFLINE: hiển thị đối thủ (mkRemote) và bot (spawnBot) phải giống nhau.
 // Sửa màu / vòng / kiếm / vệt / hiệu ứng bên này → sửa luôn bên kia (và ngược lại).
 function mkRemote(id){
@@ -1856,7 +1858,7 @@ function mkRemote(id){
  const bars=new THREE.Group(),bg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0x330000})),fg=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.2),new THREE.MeshBasicMaterial({color:0xff5555}));
  bars.scale.setScalar(1.8);fg.position.z=.01;bars.add(bg,fg);addTrail(bars,fg);scene.add(g,bars);r.bars=bars;r.fg=fg;addImmBar(r,bars);return r}
 // ---- Animation đối thủ: dùng ĐÚNG tốc độ/độ chồng lấn như máy người chơi để hai bên nhìn giống nhau ----
-const INTERP=.085,RT={chieu1:2.2,chieu2:1.36,noitai:NOITAI_TS},RX={chieu1:.025,chieu2:.07,noitai:NOITAI_HOLD};
+const INTERP=.05,RT={chieu1:2.2,chieu2:1.36,noitai:NOITAI_TS},RX={chieu1:.025,chieu2:.07,noitai:NOITAI_HOLD};
 function rPlay(e,n,isOnce){const a=e.acts[n];if(!a)return false;
  const p=e.cur&&e.acts[e.cur];
  a.reset();a.enabled=true;
@@ -1955,25 +1957,46 @@ function netMob(e,dt){const t=mobT[e.mid];
  e.flash=Math.max(0,e.flash-dt);e.m.material.emissive.setHex(e.flash>0?0xffffff:0);
  const r=e.hp/e.max;e.fg.scale.x=Math.max(.001,r);e.fg.position.x=-(1-r)*.8;updImmFx(e,tm);e.bars.position.set(e.g.position.x,ENEMY_BAR_Y,e.g.position.z);e.bars.quaternion.copy(cam.quaternion)}
 let lastP='',lastMk='',lastMs='',mobTs=0,me=null,ping=0,pingLbl=0,lastAc=0,lsX=0,lsZ=0,lsT=performance.now();
+let sendAcc=0,pingT=0,rtt=0,bestRtt=1e9;const _lp={x:1e9,z:0,vx:0,vz:0,r:0,a:'',c:-1,h:-1,L:0,lx:0,lz:0};
+const SEND_DT=1/30,SEND_DT_FAST=.025; // 30 gói/s thường, 40 gói/s khi lao
+// Đo RTT thật + hiệu chỉnh nhẹ đồng hồ (giới hạn ±2ms/lần để ts người gửi luôn tăng dần, không bị bỏ gói)
+function pingNow(){if(!online||pongCb)return;const p0=performance.now();
+ const cb=s=>{if(pongCb===cb)pongCb=null;const r=performance.now()-p0,c1=Date.now();rtt=rtt?rtt*.7+r*.3:r;
+  if(r<bestRtt)bestRtt=r;
+  if(r<=Math.max(bestRtt*1.5,bestRtt+8)){
+   const delta=s+r/2-(performance.now()+clockOffset),adjust=Math.max(-2,Math.min(2,delta*.25));
+   clockOffset+=adjust;offs+=adjust}};
+ pongCb=cb;setTimeout(()=>{if(pongCb===cb)pongCb=null},1500);ns('ping',1)}
 function netTick(dt){
  if(pdead>0){pdead-=dt;if(pdead<=0){pdead=0;hp=HPMAX;hero.visible=true;pos.set(0,0,0);lunge=null;predictionHistory.clear();correctionX=correctionZ=0;updHp()}}
  if(!online)return;
- lastSend+=dt;
  pingLbl+=dt;if(pingLbl>1){pingLbl=0;updLabel()}
- // 20 gói/giây; gửi NGAY khi có hành động mới (ac đổi) để đối thủ thấy chiêu không chờ nhịp gửi.
- if(lastSend>=((lunge||dashT>0)?.025:.05)||ac!==lastAc){const nowT=performance.now(),el=Math.max(.016,(nowT-lsT)/1000);
-  const vx=pdead>0?0:(pos.x-lsX)/el,vz=pdead>0?0:(pos.z-lsZ)/el;
-  const o={x:+pos.x.toFixed(2),z:+pos.z.toFixed(2),vx:+Math.max(-40,Math.min(40,vx)).toFixed(1),vz:+Math.max(-40,Math.min(40,vz)).toFixed(1),r:+hero.rotation.y.toFixed(2),a:cur||'idle',c:ac,h:hp,j:myJ,...(lunge?{lx:+lunge.to.x.toFixed(2),lz:+lunge.to.z.toFixed(2)}:{})},k=JSON.stringify(o);
-  if(k!==lastP){lastP=k;lastSend=0;lastAc=ac;lsX=pos.x;lsZ=pos.z;lsT=nowT;o.ts=Date.now()+offs;o.seq=++moveSeq;
+ pingT+=dt;if(pingT>2.5){pingT=0;pingNow()}}
+// Gọi ở CUỐI loop: gửi trạng thái mới nhất ngay trong frame vừa tính xong (bớt ~1 frame trễ),
+// giữ phần dư thời gian để nhịp đều 30Hz (trước đây reset về 0 → thực tế hay thành 20Hz hoặc thấp hơn).
+function netSend(dt){
+ if(!online)return;
+ sendAcc+=dt;lastMob+=dt;
+ const gap=(lunge||dashT>0)?SEND_DT_FAST:SEND_DT;
+ if(sendAcc>=gap-.0015||ac!==lastAc){
+  const nowT=performance.now(),el=Math.max(.016,(nowT-lsT)/1000),dead=pdead>0,rq=(v,k)=>Math.round(v*k)/k,cl=(v,m)=>v>m?m:v<-m?-m:v;
+  const x=rq(pos.x,100),z=rq(pos.z,100),vx=dead?0:rq(cl((pos.x-lsX)/el,40),10),vz=dead?0:rq(cl((pos.z-lsZ)/el,40),10),r=rq(hero.rotation.y,100),a=cur||'idle',L=lunge?1:0,lx=L?rq(lunge.to.x,100):0,lz=L?rq(lunge.to.z,100):0;
+  if(x!==_lp.x||z!==_lp.z||vx!==_lp.vx||vz!==_lp.vz||r!==_lp.r||a!==_lp.a||ac!==_lp.c||hp!==_lp.h||L!==_lp.L||lx!==_lp.lx||lz!==_lp.lz){
+   _lp.x=x;_lp.z=z;_lp.vx=vx;_lp.vz=vz;_lp.r=r;_lp.a=a;_lp.c=ac;_lp.h=hp;_lp.L=L;_lp.lx=lx;_lp.lz=lz;
+   sendAcc=(sendAcc>=gap*1.5||ac!==lastAc)?0:sendAcc-gap;
+   lastAc=ac;lsX=pos.x;lsZ=pos.z;lsT=nowT;
+   const o={x,z,vx,vz,r,a,c:ac,h:hp,j:myJ};if(L){o.lx=lx;o.lz=lz}
+   o.ts=netNow();o.seq=++moveSeq;
    predictionHistory.set(o.seq,{x:o.x,z:o.z});while(predictionHistory.size>128)predictionHistory.delete(predictionHistory.keys().next().value);
-   ns('p',o)}}
- if(isHost){lastMob+=dt;const sig=mobs.map(e=>e.hp+(e.dead>0?'d':'')).join();
-  if(lastMob>=.066&&(sig!==lastMs||lastMob>=.2)){const a=mobs.map(e=>[+e.g.position.x.toFixed(1),+e.g.position.z.toFixed(1),e.hp,e.dead>0?1:0,+(e.vx||0).toFixed(2),+(e.vz||0).toFixed(2)]),k=JSON.stringify(a);
-   lastMob=0;if(k!==lastMk||sig!==lastMs){lastMk=k;lastMs=sig;ns('m',a)}}}}
+   ns('p',o)}
+  else if(sendAcc>gap*2)sendAcc=gap*2}
+ if(isHost&&lastMob>=.05){lastMob=0;
+  const m=mobs.map(e=>[+e.g.position.x.toFixed(1),+e.g.position.z.toFixed(1),e.hp,e.dead>0?1:0,+(e.vx||0).toFixed(2),+(e.vz||0).toFixed(2)]),k=JSON.stringify(m);
+  if(k!==lastMk){lastMk=k;ns('m',m)}}}
 function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
  if(v.k==='s'){const m=new THREE.Mesh(new THREE.SphereGeometry(.4,10,8),new THREE.MeshBasicMaterial({color:0xff3030}));
   // Bù trễ đạn: đẩy viên đạn tới vị trí nó đáng ra đã bay tới.
-  const lag=Math.max(0,Math.min(.3,(Date.now()+offs-v.t)/1000)),adv=SHOT_SPEED*lag;
+  const lag=Math.max(0,Math.min(.3,(netNow()-v.t)/1000)),adv=SHOT_SPEED*lag;
   m.position.set(v.x+v.dx*adv,1.2,v.z+v.dz*adv);scene.add(m);shots.push({m,d:new THREE.Vector3(v.dx,0,v.dz),s:adv,vis:1,owner:v.f})}
  else if(v.k==='d'&&v.to===myId&&pdead<=0){floatNum(hero.position.x,hero.position.z,v.d,0,2.8,true);hp=Math.max(0,hp-v.d);updHp();if(hp<=0){pdead=3;hero.visible=false;lunge=null;ultWind=null}}
  else if(v.k==='pi'){passiveImpact(v.sx,v.sy,v.sz,v.ex,v.ez,v.dx,v.dz)}
@@ -1984,7 +2007,7 @@ function onEv(v){if(!v||v.f===myId||v.t<tJoin-500)return;
    if((v.id&&f.id===v.id)||(Math.abs(f.x-v.x)<.6&&Math.abs(f.z-v.z)<.6)){
     const fx=f.g.position.x,fz=f.g.position.z;scene.remove(f.g);flowers.splice(i,1);burst(fx,fz,1.8,0xff3030,0,.25,.2)}}
  }
- else if(v.k==='im'){const r=remotes[v.f];if(r){const lag=Math.max(0,Math.min(.3,(Date.now()+offs-v.t)/1000));r.immuneT=Math.max(0,v.d-lag);if(r.immuneT>0)r.immMax=Math.max(r.immMax||0,r.immuneT)}}
+ else if(v.k==='im'){const r=remotes[v.f];if(r){const lag=Math.max(0,Math.min(.3,(netNow()-v.t)/1000));r.immuneT=Math.max(0,v.d-lag);if(r.immuneT>0)r.immMax=Math.max(r.immMax||0,r.immuneT)}}
  else if(v.k==='uc'){clearFlowers('remote')}
 
  else if(v.k==='fc'){clearFlowers('remote');
@@ -2009,19 +2032,21 @@ async function join(c,mk){
    const calcHost=()=>{let best=null,bj=0;for(const id in jl){const j=jl[id];if(best===null||j<bj||(j===bj&&id<best)){best=id;bj=j}}isHost=best===null||best===myId;updLabel()};
    const proc=(id,d)=>{if(!d||id===myId)return;let r=remotes[id];
     if(!r){r=remotes[id]=mkRemote(id);enemies.push(r);r.g.position.set(d.x,0,d.z);r.g.rotation.y=d.r;r.c=d.c} // vào phòng: không phát lại chiêu cũ
-    const sNow=Date.now()+offs,lat=d.ts?Math.max(0,Math.min(.35,(sNow-d.ts)/1000)):0;
+    const sNow=netNow(),lat=d.ts?Math.max(0,Math.min(.35,(sNow-d.ts)/1000)):0;
     if(d.ts)ping=ping?ping*.85+lat*150:lat*1000;
     const vx=Math.max(-40,Math.min(40,d.vx||0)),vz=Math.max(-40,Math.min(40,d.vz||0));
     // Lưu gói theo mốc thời gian của người gửi; gói đến muộn/sai thứ tự bị bỏ để không giật lùi.
-    const t=(d.ts||sNow)/1000,sn=r.snaps,last=sn[sn.length-1];
-    if(!last||t>last.t){
+    const t=(d.ts||sNow)/1000,sn=r.snaps,last=sn[sn.length-1],seq=Number.isSafeInteger(d.seq)?d.seq:null;
+    if(!last||((seq===null||r.lastSeq===undefined)?t>last.t:seq>r.lastSeq)){
+     const snapT=last&&seq!==null&&t<=last.t?last.t+.001:t;
+     if(seq!==null)r.lastSeq=seq;
      const dl=performance.now()/1000-t; // độ trễ tương đối (không phụ thuộc lệch đồng hồ hai máy)
      if(r.base==null){r.base=dl;r.jit=.015;r.gap=.05;r.dly=.1}
      else if(dl<r.base||dl-r.base>.6)r.base=dl; // gói nhanh nhất = mốc gốc; treo máy/đổi mạng → đồng bộ lại
      else r.base+=(dl-r.base)*.004; // trôi chậm lên để bù lệch tốc độ đồng hồ
      const q=dl-r.base;r.jit+=(q-r.jit)*(q>r.jit?.3:.02); // độ rung mạng: tăng nhanh, giảm chậm
-     if(last&&t-last.t<.12)r.gap+=(t-last.t-r.gap)*.1; // nhịp gói thực tế
-     sn.push({t,x:d.x,z:d.z,vx,vz,r:d.r,lx:d.lx,lz:d.lz,tp:!!last&&Math.hypot(d.x-last.x,d.z-last.z)>9});while(sn.length>12)sn.shift()}
+     if(last&&snapT-last.t<.12)r.gap+=(snapT-last.t-r.gap)*.1; // nhịp gói thực tế
+     sn.push({t:snapT,x:d.x,z:d.z,vx,vz,r:d.r,lx:d.lx,lz:d.lz,tp:!!last&&Math.hypot(d.x-last.x,d.z-last.z)>9});while(sn.length>12)sn.shift()}
     if(d.h<r.hp&&r.pend)r.pend=Math.max(0,r.pend-(r.hp-d.h)); // đối soát dự đoán sát thương
     r.hp=d.h;
     if(d.c!==r.c)rAttack(r,d.a,d.c)};
@@ -2048,8 +2073,8 @@ async function join(c,mk){
    room.onLeave(()=>{if(online){online=false;alert('Mất kết nối với server')}});
    addEventListener('pagehide',()=>{try{room.leave()}catch(e){}});
    await syncClock();
-   myJ=tJoin=Date.now()+offs;jl[myId]=myJ;
-   const o={x:+pos.x.toFixed(1),z:+pos.z.toFixed(1),r:0,a:'idle',c:0,h:hp,j:myJ};lastP=JSON.stringify(o);o.ts=Date.now()+offs;
+   myJ=tJoin=netNow();jl[myId]=myJ;
+   const o={x:+pos.x.toFixed(1),z:+pos.z.toFixed(1),r:0,a:'idle',c:0,h:hp,j:myJ};lastP=JSON.stringify(o);o.ts=netNow();
    ns('p',o);ns('ready',1); // báo server gửi trạng thái người chơi/quái hiện có
    mobs=enemies.filter(e=>e.mid!=null);online=true;netLock=false;$('net').style.display='none';$('hp').style.display='block';updHp();calcHost();
  }catch(e){alert('Lỗi Colyseus: '+(e&&e.message||e));$('rj').disabled=$('rn').disabled=$('ro').disabled=false;$('dbg').style.display='flex';room=null}}
